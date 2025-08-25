@@ -1,1 +1,35 @@
+import os
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 
+# Expected columns:
+# Timestamp | Asset | Interval | Close | Signal | Reasons | RSI | MACD | MACD_Signal | EMA10 | EMA25
+
+def _get_client():
+    """
+    Two ways to auth:
+    1) Put your service account JSON into the env var GCP_SERVICE_ACCOUNT_JSON
+    2) Or keep a credentials.json file in repo root (not recommended for public repos)
+    """
+    json_blob = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
+    if json_blob:
+        info = json.loads(json_blob)
+        creds = Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"]
+        )
+    else:
+        creds = Credentials.from_service_account_file(
+            "credentials.json",
+            scopes=["https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"]
+        )
+    return gspread.authorize(creds)
+
+def write_signal_row(sheet_id: str, row: list):
+    client = _get_client()
+    sh = client.open_by_key(sheet_id)
+    ws = sh.sheet1
+    ws.append_row(row, value_input_option="USER_ENTERED")
