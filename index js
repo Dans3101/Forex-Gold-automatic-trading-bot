@@ -1,14 +1,63 @@
-// index.js
-import { sendSignalToGroup } from "./whatsapp.js";
+import "dotenv/config.js";
+import { initWhatsApp, sendToGroup } from "./whatsapp.js";
+import { fetchCandlesBinance, computeIndicators, decideSignal } from "./strategy.js";
 
-// Example: a trading signal
-const signal = `
-📊 Pocket Option Signal
-Pair: EUR/USD
-Action: BUY ⬆️
-Expiry: 1 min
-Confidence: 82%
-`;
+// ====== CONFIG (edit .env) ======
+const GROUP_NAME = process.env.GROUP_NAME || "PocketOption Signals";
+const SYMBOLS = (process.env.SYMBOLS || "BTCUSDT,ETHUSDT").split(","); // Binance symbols
+const LOOP_SECONDS = parseInt(process.env.LOOP_SECONDS || "120", 10);   // how often to scan
+const PRE_SIGNAL_DELAY_MS = parseInt(process.env.PRE_SIGNAL_DELAY_MS || "30000", 10); // 30s announcement gap
 
-// ✅ Replace with your actual WhatsApp group name
-sendSignalToGroup("PocketOption Signals", signal);
+// ====== MAIN LOOP ======
+async function runOnce() {
+  try {
+    // pick one symbol each cycle (you can loop all if you prefer)
+    const symbol = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].trim();
+    const candles = await fetchCandlesBinance(symbol, 250);
+    if (!candles || candles.length === 0) return;
+
+    const closes = candles.map(c => c.close);
+    const lastClose = closes[closes.length - 1];
+
+    const ind = computeIndicators(closes);
+    if (!ind) return;
+
+    // Step 1: announce asset
+    await sendToGroup(GROUP_NAME, `📊 New Asset Incoming...\nPair: ${symbol}\nLast price: ${lastClose}`);
+
+    // Step 2: wait 30s (or as configured) before decision
+    await new Promise(res => setTimeout(res, PRE_SIGNAL_DELAY_MS));
+
+    // Step 3: decide signal & send
+    const { side, reasons } = decideSignal(ind);
+    if (!side) {
+      await sendToGroup(GROUP_NAME, `ℹ️ No strong signal for ${symbol} at the moment.`);
+      return;
+    }
+
+    const msg = [
+      "🔔 Trading Signal",
+      `Pair: ${symbol}`,
+      `Decision: ${side}`,
+      `Last price: ${lastClose}`,
+      `RSI: ${ind.rsi?.toFixed(2)}`,
+      `EMA10: ${ind.fast?.toFixed(4)} | EMA25: ${ind.slow?.toFixed(4)}`,
+      `MACD: ${ind.macd?.toFixed(6)} | Signal: ${ind.macdSig?.toFixed(6)}`,
+      `Reasons: ${reasons.join(", ")}`
+    ].join("\n");
+
+    await sendToGroup(GROUP_NAME, msg);
+  } catch (e) {
+    console.error("Run error:", e.message);
+  }
+}
+
+async function main() {
+  await initWhatsApp();
+  console.log("⏳ Bot loop starting...");
+  // run immediately, then on interval
+  runOnce();
+  setInterval(runOnce, LOOP_SECONDS * 1000);
+}
+
+main();
