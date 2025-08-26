@@ -1,73 +1,110 @@
+// strategy.js
 import axios from "axios";
-import { RSI, EMA } from "technicalindicators";
+import { RSI, EMA, MACD } from "technicalindicators";
 
-// ----- DATA FEED (Binance crypto 1m candles; no API key needed) -----
-export async function fetchCandlesBinance(symbol = "BTCUSDT", limit = 200) {
+/**
+ * fetchCandles: get recent 1m candles from Binance (no API key required for public symbol data)
+ * symbol: "BTCUSDT", "ETHUSDT", etc.
+ * limit: number of candles (max 1000)
+ */
+export async function fetchCandlesBinance(symbol = "BTCUSDT", limit = 250) {
   const url = "https://api.binance.com/api/v3/klines";
   const params = { symbol, interval: "1m", limit };
-  const { data } = await axios.get(url, { params, timeout: 10000 });
-  // kline fields: [openTime, open, high, low, close, volume, closeTime, ...]
-  return data.map(k => ({
+  const resp = await axios.get(url, { params, timeout: 10000 });
+  const data = resp.data;
+  // return array of closes (floats) and last close price
+  const candles = data.map((k) => ({
     openTime: k[0],
     open: parseFloat(k[1]),
     high: parseFloat(k[2]),
-    low:  parseFloat(k[3]),
+    low: parseFloat(k[3]),
     close: parseFloat(k[4]),
     volume: parseFloat(k[5]),
-    closeTime: k[6]
+    closeTime: k[6],
   }));
+  return candles;
 }
 
-// ----- INDICATORS & SIGNAL -----
+/**
+ * computeIndicators: given array of closes, compute RSI, EMA10, EMA25, MACD
+ * returns an object of latest indicator values and the previous values needed to detect cross
+ */
 export function computeIndicators(closes) {
-  if (closes.length < 50) return null;
+  if (!closes || closes.length < 50) return null;
 
-  const rsiArr = RSI.calculate({ period: 14, values: closes });
-  const emaFast = EMA.calculate({ period: 10, values: closes });
-  const emaSlow = EMA.calculate({ period: 25, values: closes });
+  const closesArr = closes.slice(); // array of numbers
+  // RSI (14)
+  const rsiArr = RSI.calculate({ values: closesArr, period: 14 });
+  // EMA10 & EMA25
+  const ema10 = EMA.calculate({ values: closesArr, period: 10 });
+  const ema25 = EMA.calculate({ values: closesArr, period: 25 });
 
-  // MACD (manual using EMA)
-  const ema12 = EMA.calculate({ period: 12, values: closes });
-  const ema26 = EMA.calculate({ period: 26, values: closes });
-  const macdLine = ema26.map((_, i) =>
-    ema12[i] !== undefined && ema26[i] !== undefined ? ema12[i] - ema26[i] : undefined
-  ).filter(v => v !== undefined);
-  const macdSignal = EMA.calculate({ period: 9, values: macdLine });
+  // MACD using technicalindicators
+  const macdInput = {
+    values: closesArr,
+    fastPeriod: 12,
+    slowPeriod: 26,
+    signalPeriod: 9,
+    SimpleMAOscillator: false,
+    SimpleMASignal: false,
+  };
+  const macdArr = MACD.calculate(macdInput); // gives objects { MACD, signal, histogram }
 
-  // align last values
-  const rsi = rsiArr[rsiArr.length - 1];
-  const fast = emaFast[emaFast.length - 1];
-  const slow = emaSlow[emaSlow.length - 1];
-  const prevFast = emaFast[emaFast.length - 2];
-  const prevSlow = emaSlow[emaSlow.length - 2];
+  // get aligned latest values (ensure enough history)
+  const latest = {
+    rsi: rsiArr[rsiArr.length - 1],
+    ema10: ema10[ema10.length - 1],
+    ema25: ema25[ema25.length - 1],
+    prevEma10: ema10[ema10.length - 2],
+    prevEma25: ema25[ema25.length - 2],
+    macd: macdArr[macdArr.length - 1]?.MACD,
+    macdSignal: macdArr[macdArr.length - 1]?.signal,
+    prevMacd: macdArr[macdArr.length - 2]?.MACD,
+    prevMacdSignal: macdArr[macdArr.length - 2]?.signal,
+  };
 
-  const macd = macdLine[macdLine.length - 1];
-  const macdSig = macdSignal[macdSignal.length - 1];
-  const prevMacd = macdLine[macdLine.length - 2];
-  const prevMacdSig = macdSignal[macdSignal.length - 2];
-
-  return { rsi, fast, slow, prevFast, prevSlow, macd, macdSig, prevMacd, prevMacdSig };
+  return latest;
 }
 
+/**
+ * decideSignal: basic rule-combiner
+ * returns { side: "BUY"|"SELL"|null, reasons: [] }
+ */
 export function decideSignal(ind) {
+  if (!ind) return { side: null, reasons: [] };
   const reasons = [];
-  let side = null;
 
-  // RSI zones
-  if (ind.rsi < 30) reasons.push("RSI oversold (<30)");
-  if (ind.rsi > 70) reasons.push("RSI overbought (>70)");
+  if (ind.rsi !== undefined) {
+    if (ind.rsi < 30) reasons.push("RSI oversold (<30)");
+    if (ind.rsi > 70) reasons.push("RSI overbought (>70)");
+  }
 
-  // EMA crossover
-  if (ind.prevFast < ind.prevSlow && ind.fast > ind.slow) reasons.push("Bullish EMA10/25 cross");
-  if (ind.prevFast > ind.prevSlow && ind.fast < ind.slow) reasons.push("Bearish EMA10/25 cross");
+  // EMA cross detection
+  if (
+    ind.prevEma10 !== undefined &&
+    ind.prevEma25 !== undefined &&
+    ind.ema10 !== undefined &&
+    ind.ema25 !== undefined
+  ) {
+    if (ind.prevEma10 < ind.prevEma25 && ind.ema10 > ind.ema25) reasons.push("Bullish EMA10/25 cross");
+    if (ind.prevEma10 > ind.prevEma25 && ind.ema10 < ind.ema25) reasons.push("Bearish EMA10/25 cross");
+  }
 
   // MACD cross
-  if (ind.prevMacd < ind.prevMacdSig && ind.macd > ind.macdSig) reasons.push("Bullish MACD cross");
-  if (ind.prevMacd > ind.prevMacdSig && ind.macd < ind.macdSig) reasons.push("Bearish MACD cross");
+  if (
+    ind.prevMacd !== undefined &&
+    ind.prevMacdSignal !== undefined &&
+    ind.macd !== undefined &&
+    ind.macdSignal !== undefined
+  ) {
+    if (ind.prevMacd < ind.prevMacdSignal && ind.macd > ind.macdSignal) reasons.push("Bullish MACD cross");
+    if (ind.prevMacd > ind.prevMacdSignal && ind.macd < ind.macdSignal) reasons.push("Bearish MACD cross");
+  }
 
-  const bull = reasons.filter(r => r.includes("Bullish") || r.includes("oversold")).length;
-  const bear = reasons.filter(r => r.includes("Bearish") || r.includes("overbought")).length;
+  const bull = reasons.filter((r) => r.toLowerCase().includes("bull") || r.toLowerCase().includes("oversold")).length;
+  const bear = reasons.filter((r) => r.toLowerCase().includes("bear") || r.toLowerCase().includes("overbought")).length;
 
+  let side = null;
   if (bull >= 2 && bear === 0) side = "BUY ⬆️";
   if (bear >= 2 && bull === 0) side = "SELL ⬇️";
 
