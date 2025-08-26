@@ -1,0 +1,14 @@
+// index.js
+import { sendSignalToGroup } from "./whatsapp.js";
+
+// Example: a trading signal
+const signal = `
+📊 Pocket Option Signal
+Pair: EUR/USD
+Action: BUY ⬆️
+Expiry: 1 min
+Confidence: 82%
+`;
+
+// ✅ Replace with your actual WhatsApp group name
+sendSignalToGroup("PocketOption Signals", signal);
