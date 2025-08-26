@@ -1,72 +1,78 @@
-import makeWASocket, { useMultiFileAuthState, delay } from "@whiskeysockets/baileys";
-import { getTradingSignal } from "./pocketScraper.js";
+// botManager.js
+import makeWASocket, {
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  delay
+} from "@whiskeysockets/baileys";
 import { groupId } from "./config.js";
-import fs from "fs";
+import { getSignal } from "./pocketScraper.js"; // 📊 get signal from Pocket Option scraper
 
-let botRunning = false;
-let intervalId = null;
+let botActive = false; // 🔘 on/off switch
 
-// ====== Start Bot ======
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
+  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
+    version,
     auth: state,
-    printQRInTerminal: true,
+    printQRInTerminal: false // ❌ no QR, we’ll use pairing code
   });
+
+  // 🔹 Generate pairing code if first login
+  if (!state.creds || !state.creds.me) {
+    const phoneNumber = "2547XXXXXXXX"; // 👉 replace with your WhatsApp number
+    const code = await sock.requestPairingCode(phoneNumber);
+    console.log("📲 Enter this code in WhatsApp Linked Devices:", code);
+  }
 
   sock.ev.on("creds.update", saveCreds);
 
-  // ✅ Connection handler
   sock.ev.on("connection.update", ({ connection }) => {
     if (connection === "open") {
       console.log("✅ Bot connected to WhatsApp");
     }
   });
 
-  // ✅ Listen for commands
+  // 🔹 Listen for group commands
   sock.ev.on("messages.upsert", async ({ messages }) => {
-    const m = messages[0];
-    if (!m.message || !m.key.remoteJid) return;
+    const msg = messages[0];
+    if (!msg.message || !msg.key.remoteJid) return;
 
-    const from = m.key.remoteJid;
-    const text = m.message.conversation || m.message.extendedTextMessage?.text || "";
+    const from = msg.key.remoteJid;
+    const body =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      "";
 
-    // Only respond inside the configured group
-    if (from !== groupId) return;
-
-    if (text.toLowerCase() === ".on") {
-      if (botRunning) {
-        await sock.sendMessage(groupId, { text: "⚡ Bot is already running." });
-        return;
+    // Only respond inside the target group
+    if (from === groupId) {
+      if (body.toLowerCase() === ".on") {
+        botActive = true;
+        await sock.sendMessage(groupId, { text: "✅ Bot turned ON" });
+        generateSignals(sock);
+      } else if (body.toLowerCase() === ".off") {
+        botActive = false;
+        await sock.sendMessage(groupId, { text: "⛔ Bot turned OFF" });
       }
-      botRunning = true;
-      await sock.sendMessage(groupId, { text: "✅ Trading bot activated. Signals will be sent every 5 minutes." });
-
-      // Start interval for signals
-      intervalId = setInterval(async () => {
-        const signal = await getTradingSignal();
-        if (signal) {
-          const msg = `📊 *Trading Signal*  
-Asset: ${signal.asset}  
-Decision: ${signal.decision}  
-Time: ${signal.time}`;
-          await sock.sendMessage(groupId, { text: msg });
-          console.log("✅ Signal sent:", msg);
-        } else {
-          await sock.sendMessage(groupId, { text: "⚠️ Failed to fetch signal." });
-        }
-      }, 5 * 60 * 1000); // every 5 min
-    }
-
-    if (text.toLowerCase() === ".off") {
-      if (!botRunning) {
-        await sock.sendMessage(groupId, { text: "❌ Bot is already stopped." });
-        return;
-      }
-      botRunning = false;
-      clearInterval(intervalId);
-      await sock.sendMessage(groupId, { text: "🛑 Trading bot stopped." });
     }
   });
+}
+
+// ====== Signal Loop ======
+async function generateSignals(sock) {
+  while (botActive) {
+    // 1️⃣ Get signal from Pocket Option scraper
+    const signal = await getSignal();
+
+    // 2️⃣ Send signal to WhatsApp group
+    await sock.sendMessage(groupId, { text: signal });
+    console.log("✅ Signal sent:", signal);
+
+    // 3️⃣ Wait 5 minutes before sending next signal
+    for (let i = 0; i < 30; i++) {
+      if (!botActive) break; // stop immediately if turned off
+      await delay(10000); // check every 10s (total 5 min = 30×10s)
+    }
+  }
 }
