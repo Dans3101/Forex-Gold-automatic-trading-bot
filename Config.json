@@ -1,3 +1,14 @@
-export const groupId = "123456789-987654321@g.us"; // your group
+// config.js
+
+// 📌 WhatsApp group ID where signals will be sent
+// Example format: "1234567890-123456@g.us"
+export const groupId = "123456789-987654321@g.us"; 
+
+// 📌 Your WhatsApp number used for pairing login
+// Format: country code + phone number (no + sign)
+// Example: "254712345678"
+export const whatsappNumber = "254712345678";
+
+// (Optional) Pocket Option credentials for practice account
 export const email = "your_practice_email";
 export const password = "your_practice_password";
