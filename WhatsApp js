@@ -1,37 +1,31 @@
-// whatsapp.js
 import qrcode from "qrcode-terminal";
 import pkg from "whatsapp-web.js";
 const { Client, LocalAuth } = pkg;
 
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: { headless: true }
+export const client = new Client({
+  authStrategy: new LocalAuth(),        // saves session so you scan QR only once
+  puppeteer: { headless: true }
 });
 
 client.on("qr", (qr) => {
-    console.log("📲 Scan this QR with your WhatsApp:");
-    qrcode.generate(qr, { small: true });
+  console.log("📲 Scan this QR with your WhatsApp:");
+  qrcode.generate(qr, { small: true });
 });
 
 client.on("ready", () => {
-    console.log("✅ WhatsApp bot is ready!");
+  console.log("✅ WhatsApp bot is ready!");
 });
 
-// Function to send signal to a WhatsApp group
-export const sendSignalToGroup = async (groupName, signal) => {
-    try {
-        const chats = await client.getChats();
-        const group = chats.find(c => c.isGroup && c.name === groupName);
-
-        if (group) {
-            await client.sendMessage(group.id._serialized, signal);
-            console.log(`📤 Sent signal to group: ${groupName}`);
-        } else {
-            console.log("⚠️ Group not found, check the name!");
-        }
-    } catch (err) {
-        console.error("❌ Error sending signal:", err);
-    }
+export const sendToGroup = async (groupName, message) => {
+  const chats = await client.getChats();
+  const group = chats.find(c => c.isGroup && c.name === groupName);
+  if (!group) {
+    console.log(`⚠️ Group "${groupName}" not found. Double-check the exact name.`);
+    return;
+  }
+  await client.sendMessage(group.id._serialized, message);
 };
 
-client.initialize();
+export const initWhatsApp = async () => {
+  await client.initialize();
+};
