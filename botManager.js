@@ -1,78 +1,116 @@
 // botManager.js
 import makeWASocket, {
   useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  delay
+  delay,
+  makeCacheableSignalKeyStore,
+  Browsers,
 } from "@whiskeysockets/baileys";
+import readline from "readline";
 import { groupId } from "./config.js";
-import { getSignal } from "./pocketScraper.js"; // 📊 get signal from Pocket Option scraper
+import { getPocketData } from "./pocketscraper.js";
 
-let botActive = false; // 🔘 on/off switch
+let isRunning = false; // toggle for signals
+let sock; // WhatsApp socket instance
 
+// ========== Utility: Input Prompt ==========
+function askQuestion(query) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise((resolve) =>
+    rl.question(query, (ans) => {
+      rl.close();
+      resolve(ans);
+    })
+  );
+}
+
+// ========== WhatsApp Connection ==========
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
-  const { version } = await fetchLatestBaileysVersion();
 
-  const sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false // ❌ no QR, we’ll use pairing code
+  sock = makeWASocket({
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, null),
+    },
+    printQRInTerminal: false, // we are not using QR
+    browser: Browsers.macOS("Desktop"),
   });
-
-  // 🔹 Generate pairing code if first login
-  if (!state.creds || !state.creds.me) {
-    const phoneNumber = "2547XXXXXXXX"; // 👉 replace with your WhatsApp number
-    const code = await sock.requestPairingCode(phoneNumber);
-    console.log("📲 Enter this code in WhatsApp Linked Devices:", code);
-  }
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", ({ connection }) => {
+  // Connection status
+  sock.ev.on("connection.update", async (update) => {
+    const { connection } = update;
     if (connection === "open") {
-      console.log("✅ Bot connected to WhatsApp");
+      console.log("✅ Connected to WhatsApp!");
+    } else if (connection === "close") {
+      console.log("❌ Connection closed, reconnecting...");
+      startBot();
     }
   });
 
-  // 🔹 Listen for group commands
+  // 🔑 Linking Code Login
+  if (!state.creds.registered) {
+    const phoneNumber = await askQuestion(
+      "📱 Enter your WhatsApp phone number (e.g., 2547XXXXXXXX): "
+    );
+    const code = await sock.requestPairingCode(phoneNumber);
+    console.log(`🔗 Your WhatsApp Linking Code: ${code}`);
+    console.log("👉 Enter this in WhatsApp: Linked Devices > Link a Device");
+  }
+
+  // ========== Listen for Commands ==========
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || !msg.key.remoteJid) return;
 
     const from = msg.key.remoteJid;
-    const body =
+    const text =
       msg.message.conversation ||
       msg.message.extendedTextMessage?.text ||
       "";
 
-    // Only respond inside the target group
     if (from === groupId) {
-      if (body.toLowerCase() === ".on") {
-        botActive = true;
-        await sock.sendMessage(groupId, { text: "✅ Bot turned ON" });
-        generateSignals(sock);
-      } else if (body.toLowerCase() === ".off") {
-        botActive = false;
-        await sock.sendMessage(groupId, { text: "⛔ Bot turned OFF" });
+      if (text.toLowerCase() === ".on") {
+        if (!isRunning) {
+          isRunning = true;
+          await sock.sendMessage(groupId, {
+            text: "✅ Trading signals *activated*!",
+          });
+          startSignalLoop();
+        }
+      } else if (text.toLowerCase() === ".off") {
+        isRunning = false;
+        await sock.sendMessage(groupId, {
+          text: "🛑 Trading signals *stopped*!",
+        });
       }
     }
   });
 }
 
-// ====== Signal Loop ======
-async function generateSignals(sock) {
-  while (botActive) {
-    // 1️⃣ Get signal from Pocket Option scraper
-    const signal = await getSignal();
+// ========== Trading Signal Loop ==========
+async function startSignalLoop() {
+  while (isRunning) {
+    // ⏳ Wait 30s before decision
+    await delay(30000);
 
-    // 2️⃣ Send signal to WhatsApp group
+    // 📊 Get market data from Pocket Option
+    const marketData = await getPocketData();
+    const decision = marketData.decision || "HOLD";
+
+    const signal = `📊 *Trading Signal*  
+Asset: EUR/USD  
+Decision: ${decision}  
+Time: ${new Date().toLocaleTimeString()}`;
+
     await sock.sendMessage(groupId, { text: signal });
-    console.log("✅ Signal sent:", signal);
+    console.log("✅ Sent signal:", signal);
 
-    // 3️⃣ Wait 5 minutes before sending next signal
-    for (let i = 0; i < 30; i++) {
-      if (!botActive) break; // stop immediately if turned off
-      await delay(10000); // check every 10s (total 5 min = 30×10s)
-    }
+    // Wait 5 minutes before next signal
+    await delay(5 * 60 * 1000);
   }
 }
