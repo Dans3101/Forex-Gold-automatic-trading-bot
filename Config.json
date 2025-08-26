@@ -1,12 +1,3 @@
-// config.js
-
-// ✅ WhatsApp Group ID where signals will be sent
-// Example format: "1234567890-123456@g.us"
-export const groupId = "https://chat.whatsapp.com/E9B263LXkosKonAH7xxmbm?mode=ac_t";
-
-// ✅ Default settings
-export const settings = {
-  signalInterval: 5 * 60 * 1000, // 5 minutes between signals
-  decisionDelay: 30 * 1000,      // 30 seconds delay before buy/sell decision
-  defaultAsset: "EUR/USD",       // Default trading pair
-};
+export const groupId = "123456789-987654321@g.us"; // your group
+export const email = "your_practice_email";
+export const password = "your_practice_password";
