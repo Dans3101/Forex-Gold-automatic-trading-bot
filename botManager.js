@@ -12,7 +12,7 @@ export async function startBot() {
 
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true, // will later switch to phone number + code
+    printQRInTerminal: true, // shows QR if no session yet
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -21,7 +21,8 @@ export async function startBot() {
     const { connection, lastDisconnect } = update;
     if (connection === "close") {
       const shouldReconnect =
-        (lastDisconnect.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+        (lastDisconnect.error as Boom)?.output?.statusCode !==
+        DisconnectReason.loggedOut;
       if (shouldReconnect) {
         startBot();
       }
@@ -46,23 +47,27 @@ export async function startBot() {
         if (!isBotOn) {
           isBotOn = true;
           await sock.sendMessage(groupId, {
-            text: "🤖 Trading signals bot *activated*! Generating signals every 5 minutes...",
+            text: "🤖 Trading signals bot *activated*! Sending 1 random signal every 5 minutes...",
           });
 
           signalInterval = setInterval(async () => {
             const results = await getPocketData();
 
-            await sock.sendMessage(groupId, { text: "📊 Pocket Option Signals\n\n" });
+            if (results.length > 0) {
+              // pick a random asset
+              const randomIndex = Math.floor(Math.random() * results.length);
+              const r = results[randomIndex];
 
-            for (let r of results) {
-              // Step 1: Send asset name
-              await sock.sendMessage(groupId, { text: `📌 ${r.asset}` });
+              // send asset name first
+              await sock.sendMessage(groupId, { text: `📊 Asset: ${r.asset}` });
 
-              // Step 2: Wait 30 seconds ⏳
-              await new Promise(resolve => setTimeout(resolve, 30000));
+              // wait 30 seconds ⏳
+              await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
 
-              // Step 3: Send decision
-              await sock.sendMessage(groupId, { text: `➡️ ${r.decision}\n` });
+              // send decision
+              await sock.sendMessage(groupId, { text: `📌 Decision: ${r.decision}` });
+            } else {
+              await sock.sendMessage(groupId, { text: "⚠️ No signals available right now." });
             }
           }, 5 * 60 * 1000); // every 5 minutes
         }
