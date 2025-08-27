@@ -2,7 +2,7 @@
 
 // 📌 WhatsApp group ID where signals will be sent
 // Example format: "1234567890-123456@g.us"
-export const groupId = "123456789-987654321@g.us"; 
+export const groupId = "https://chat.whatsapp.com/E9B263LXkosKonAH7xxmbm?mode=ac_t"; 
 
 // 📌 Your WhatsApp number used for pairing login
 // Format: country code + phone number (254757717976)
