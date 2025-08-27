@@ -5,10 +5,10 @@
 export const groupId = "123456789-987654321@g.us"; 
 
 // 📌 Your WhatsApp number used for pairing login
-// Format: country code + phone number (no + sign)
+// Format: country code + phone number (254757717976)
 // Example: "254712345678"
-export const whatsappNumber = "254712345678";
+export const whatsappNumber = "254757717976";
 
 // (Optional) Pocket Option credentials for practice account
-export const email = "your_practice_email";
-export const password = "your_practice_password";
+export const email = "dansdans2025@outlook.com";
+export const password = "Daniel3101@";
