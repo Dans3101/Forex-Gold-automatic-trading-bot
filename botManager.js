@@ -1,5 +1,8 @@
 // botManager.js
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from "@whiskeysockets/baileys";
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason,
+} from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import { groupId } from "./config.js";
 import { getPocketData } from "./pocketscraper.js";
@@ -31,7 +34,7 @@ export async function startBot() {
     }
   });
 
-  // 📩 Handle messages
+  // 📩 Handle group messages
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || !msg.key.remoteJid) return;
@@ -42,6 +45,7 @@ export async function startBot() {
       msg.message.extendedTextMessage?.text ||
       "";
 
+    // Only listen inside the configured group
     if (from === groupId) {
       if (body.toLowerCase() === ".on") {
         if (!isBotOn) {
@@ -54,20 +58,26 @@ export async function startBot() {
             const results = await getPocketData();
 
             if (results.length > 0) {
-              // pick a random asset
+              // Pick a random asset from scraped list
               const randomIndex = Math.floor(Math.random() * results.length);
               const r = results[randomIndex];
 
-              // send asset name first
-              await sock.sendMessage(groupId, { text: `📊 Asset: ${r.asset}` });
+              // Send asset name first
+              await sock.sendMessage(groupId, {
+                text: `📊 Asset: ${r.asset}`,
+              });
 
-              // wait 30 seconds ⏳
+              // Wait 30 seconds ⏳
               await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
 
-              // send decision
-              await sock.sendMessage(groupId, { text: `📌 Decision: ${r.decision}` });
+              // Send decision
+              await sock.sendMessage(groupId, {
+                text: `📌 Decision: ${r.decision}`,
+              });
             } else {
-              await sock.sendMessage(groupId, { text: "⚠️ No signals available right now." });
+              await sock.sendMessage(groupId, {
+                text: "⚠️ No signals available right now.",
+              });
             }
           }, 5 * 60 * 1000); // every 5 minutes
         }
