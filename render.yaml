@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: wa-signal-bot
+    env: node
+    region: oregon   # or any region close to you
+    plan: free       # you can change later
+    buildCommand: "npm install"
+    startCommand: "node index.js"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EMAIL
+        sync: false   # stored securely in Render Dashboard
+      - key: PASSWORD
+        sync: false   # stored securely in Render Dashboard
+      - key: GROUP_ID
+        sync: false   # stored securely in Render Dashboard
