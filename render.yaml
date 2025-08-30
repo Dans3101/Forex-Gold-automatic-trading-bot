@@ -1,20 +1,36 @@
 services:
+  # Web service to keep the bot alive (keep-alive server)
   - type: web
-    name: wa-signal-bot
+    name: wa-signal-web
     env: node
-    region: oregon   # pick the closest region to you
     plan: free
-    buildCommand: "npm install"
-    startCommand: "node index.js"
     repo: https://github.com/Dans3101/Pocket-option-trading-bot
     branch: main
+    buildCommand: "npm install"
+    startCommand: "node index.js"
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: EMAIL
-        sync: false   # stored securely in Render Dashboard
-      - key: PASSWORD
-        sync: false   # stored securely in Render Dashboard
+
+  # Worker service to run the WhatsApp trading bot
+  - type: worker
+    name: wa-signal-bot
+    env: node
+    plan: free
+    repo: https://github.com/Dans3101/Pocket-option-trading-bot
+    branch: main
+    buildCommand: "npm install"
+    startCommand: "node index.js"
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
       - key: GROUP_ID
-        sync: false   # stored securely in Render Dashboard
+        sync: false
+      - key: EMAIL
+        sync: false
+      - key: PASSWORD
+        sync: false
+      - key: PHONE_NUMBER
+        sync: false
