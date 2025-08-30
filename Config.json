@@ -1,5 +1,4 @@
-// config.js
-export const groupId = process.env.GROUP_ID;
-export const email = process.env.EMAIL;
-export const password = process.env.PASSWORD;
-export const phoneNumber = process.env.PHONE_NUMBER;
+export const phoneNumber = "2547XXXXXXXX"; // use full international format
+export const groupId = "xxxxxxxx@g.us";   // your group ID
+export const email = "your_pocketoption_email";
+export const password = "your_pocketoption_password";
