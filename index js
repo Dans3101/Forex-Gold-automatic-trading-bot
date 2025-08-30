@@ -1,4 +1,7 @@
 // index.js
 import { startBot } from "./botManager.js";
 
-startBot();
+(async () => {
+  console.log("🚀 Starting WhatsApp Trading Signals Bot...");
+  await startBot();
+})();
