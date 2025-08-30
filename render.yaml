@@ -6,7 +6,7 @@ services:
     plan: free
     buildCommand: "npm install"
     startCommand: "node index.js"
-    repo: https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME
+    repo: https://github.com/Dans3101/Pocket-option-trading-bot
     branch: main
     autoDeploy: true
     envVars:
