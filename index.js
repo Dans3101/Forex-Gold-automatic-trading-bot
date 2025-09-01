@@ -1,14 +1,14 @@
 // index.js
 import express from "express";
-import { startSession } from "./botManager.js"; // ✅ import your bot logic
+import { startBot } from "./botManager.js";
 
-// Start the bot
-startSession("main");
+// --- Start WhatsApp Trading Bot ---
+startBot();
 
 // --- Keep Alive Web Server ---
 const app = express();
 
-// Health check route
+// A simple route to confirm service is alive
 app.get("/", (req, res) => {
   res.send("✅ Pocket Option Bot is running on Render!");
 });
