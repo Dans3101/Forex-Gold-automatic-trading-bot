@@ -5,13 +5,14 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "express": "^4.19.2"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": "20.x"
   },
   "keywords": [
     "trading-bot",
