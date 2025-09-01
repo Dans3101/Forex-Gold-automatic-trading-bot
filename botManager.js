@@ -5,12 +5,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
-import {
-  groupId,
-  phoneNumber,
-  signalIntervalMinutes,
-  decisionDelaySeconds,
-} from "./config.js";
+import { groupId, phoneNumber, signalIntervalMinutes, decisionDelaySeconds } from "./config.js";
 import { getPocketData } from "./pocketscraper.js";
 
 let isBotOn = false;
@@ -33,8 +28,7 @@ export async function startBot() {
 
     if (connection === "close") {
       const shouldReconnect =
-        (lastDisconnect.error as Boom)?.output?.statusCode !==
-        DisconnectReason.loggedOut;
+        (lastDisconnect.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
       if (shouldReconnect) {
         startBot();
       }
@@ -66,9 +60,7 @@ export async function startBot() {
 
     const from = msg.key.remoteJid;
     const body =
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text ||
-      "";
+      msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
     if (from === groupId) {
       if (body.toLowerCase() === ".on") {
@@ -88,21 +80,15 @@ export async function startBot() {
               // send asset name first
               await sock.sendMessage(groupId, { text: `📊 Asset: ${r.asset}` });
 
-              // wait configured delay
-              await new Promise((resolve) =>
-                setTimeout(resolve, decisionDelaySeconds * 1000)
-              );
+              // wait before sending decision
+              await new Promise((resolve) => setTimeout(resolve, decisionDelaySeconds * 1000));
 
               // send decision
-              await sock.sendMessage(groupId, {
-                text: `📌 Decision: ${r.decision}`,
-              });
+              await sock.sendMessage(groupId, { text: `📌 Decision: ${r.decision}` });
             } else {
-              await sock.sendMessage(groupId, {
-                text: "⚠️ No signals available right now.",
-              });
+              await sock.sendMessage(groupId, { text: "⚠️ No signals available right now." });
             }
-          }, signalIntervalMinutes * 60 * 1000); // every X minutes
+          }, signalIntervalMinutes * 60 * 1000);
         }
       } else if (body.toLowerCase() === ".off") {
         if (isBotOn) {
