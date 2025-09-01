@@ -1,9 +1,32 @@
 // config.js
 
+// ===============================
 // 📌 WhatsApp Bot Settings
-export const phoneNumber = "2547XXXXXXXX";  // Your WhatsApp number in full international format
-export const groupId = "xxxxxxxx@g.us";     // WhatsApp Group ID where the bot sends signals
+// ===============================
 
-// 📌 Pocket Option Login
-export const email = "your_pocketoption_email";     // Pocket Option account email
-export const password = "your_pocketoption_password"; // Pocket Option account password
+// Your WhatsApp number in full international format (used for pairing)
+export const phoneNumber = "2547XXXXXXXX";  
+
+// WhatsApp Group ID where the bot sends trading signals
+// Example format: "1234567890-123456@g.us"
+export const groupId = "xxxxxxxx@g.us";     
+
+
+// ===============================
+// 📌 Pocket Option Account
+// ===============================
+
+// Replace with your Pocket Option credentials
+export const email = "your_pocketoption_email";
+export const password = "your_pocketoption_password";
+
+
+// ===============================
+// ⚙️ Bot Options
+// ===============================
+
+// Interval in minutes between signals (default: 5 minutes)
+export const signalIntervalMinutes = 5;
+
+// Delay (in seconds) between sending the asset and the decision (default: 30s)
+export const decisionDelaySeconds = 30;
