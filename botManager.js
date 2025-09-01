@@ -5,19 +5,22 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
-import { groupId, phoneNumber } from "./config.js"; // 📌 add phoneNumber to config.js
+import {
+  groupId,
+  phoneNumber,
+  signalIntervalMinutes,
+  decisionDelaySeconds,
+} from "./config.js";
 import { getPocketData } from "./pocketscraper.js";
 
 let isBotOn = false;
 let signalInterval;
-let sock; // keep reference to the socket
 
-// Main bot logic
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
   const { version } = await fetchLatestBaileysVersion();
 
-  sock = makeWASocket({
+  const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false, // ❌ disable QR
@@ -30,13 +33,10 @@ export async function startBot() {
 
     if (connection === "close") {
       const shouldReconnect =
-        (lastDisconnect?.error as Boom)?.output?.statusCode !==
+        (lastDisconnect.error as Boom)?.output?.statusCode !==
         DisconnectReason.loggedOut;
       if (shouldReconnect) {
-        console.log("🔄 Reconnecting bot...");
         startBot();
-      } else {
-        console.log("❌ Bot logged out.");
       }
     } else if (connection === "open") {
       console.log("✅ WhatsApp bot connected");
@@ -59,7 +59,7 @@ export async function startBot() {
     }
   }
 
-  // 📩 Handle incoming messages
+  // 📩 Handle messages
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || !msg.key.remoteJid) return;
@@ -75,7 +75,7 @@ export async function startBot() {
         if (!isBotOn) {
           isBotOn = true;
           await sock.sendMessage(groupId, {
-            text: "🤖 Trading signals bot *activated*! Sending 1 random signal every 5 minutes...",
+            text: `🤖 Trading signals bot *activated*! Sending 1 random signal every ${signalIntervalMinutes} minutes...`,
           });
 
           signalInterval = setInterval(async () => {
@@ -88,8 +88,10 @@ export async function startBot() {
               // send asset name first
               await sock.sendMessage(groupId, { text: `📊 Asset: ${r.asset}` });
 
-              // wait 30 seconds ⏳
-              await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
+              // wait configured delay
+              await new Promise((resolve) =>
+                setTimeout(resolve, decisionDelaySeconds * 1000)
+              );
 
               // send decision
               await sock.sendMessage(groupId, {
@@ -100,7 +102,7 @@ export async function startBot() {
                 text: "⚠️ No signals available right now.",
               });
             }
-          }, 5 * 60 * 1000); // every 5 minutes
+          }, signalIntervalMinutes * 60 * 1000); // every X minutes
         }
       } else if (body.toLowerCase() === ".off") {
         if (isBotOn) {
@@ -113,10 +115,4 @@ export async function startBot() {
       }
     }
   });
-}
-
-// Wrapper for index.js
-export function startSession(sessionName) {
-  console.log(`🚀 Starting bot session: ${sessionName}`);
-  startBot();
 }
