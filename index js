@@ -1,6 +1,6 @@
 // index.js
 import express from "express";
-import { startSession } from "./botManager.js";  // your bot manager
+import { startSession } from "./package json";  // your bot manager
 
 // Start the bot
 startSession("main");
