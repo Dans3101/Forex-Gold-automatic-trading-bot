@@ -10,12 +10,14 @@ import { getPocketData } from "./pocketscraper.js";
 
 let isBotOn = false;
 let signalInterval;
+let sock; // keep reference to the socket
 
+// Main bot logic
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
   const { version } = await fetchLatestBaileysVersion();
 
-  const sock = makeWASocket({
+  sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false, // ❌ disable QR
@@ -28,10 +30,13 @@ export async function startBot() {
 
     if (connection === "close") {
       const shouldReconnect =
-        (lastDisconnect.error as Boom)?.output?.statusCode !==
+        (lastDisconnect?.error as Boom)?.output?.statusCode !==
         DisconnectReason.loggedOut;
       if (shouldReconnect) {
+        console.log("🔄 Reconnecting bot...");
         startBot();
+      } else {
+        console.log("❌ Bot logged out.");
       }
     } else if (connection === "open") {
       console.log("✅ WhatsApp bot connected");
@@ -54,7 +59,7 @@ export async function startBot() {
     }
   }
 
-  // 📩 Handle messages
+  // 📩 Handle incoming messages
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || !msg.key.remoteJid) return;
@@ -108,4 +113,10 @@ export async function startBot() {
       }
     }
   });
+}
+
+// Wrapper for index.js
+export function startSession(sessionName) {
+  console.log(`🚀 Starting bot session: ${sessionName}`);
+  startBot();
 }
