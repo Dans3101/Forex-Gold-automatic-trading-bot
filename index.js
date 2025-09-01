@@ -1,6 +1,6 @@
 // index.js
 import express from "express";
-import { startSession } from "./package.json";  // your bot manager
+import { startSession } from "./botManager.js"; // ✅ import your bot logic
 
 // Start the bot
 startSession("main");
@@ -8,7 +8,7 @@ startSession("main");
 // --- Keep Alive Web Server ---
 const app = express();
 
-// A simple route to confirm service is alive
+// Health check route
 app.get("/", (req, res) => {
   res.send("✅ Pocket Option Bot is running on Render!");
 });
