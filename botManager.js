@@ -1,24 +1,54 @@
 // botManager.js
+
+// ✅ Core modules
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// ✅ WhatsApp client
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
-import { groupId, phoneNumber, signalIntervalMinutes, decisionDelaySeconds } from "./config.js";
+
+// ✅ Config (environment variables from config.js)
+import {
+  phoneNumber,
+  groupId,
+  email,
+  password,
+  signalIntervalMinutes,
+  decisionDelaySeconds,
+} from "./config.js";
+
+// ✅ Pocket Option scraper
 import { getPocketData } from "./pocketscraper.js";
+
+// Utils
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Logs for debugging env vars
+console.log("🚀 Bot Manager loaded...");
+console.log("📞 WhatsApp Phone:", phoneNumber || "❌ Not set");
+console.log("👥 Group ID:", groupId || "❌ Not set");
+console.log("📧 Pocket Option Email:", email || "❌ Not set");
 
 let isBotOn = false;
 let signalInterval;
 
 export async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
+  const { state, saveCreds } = await useMultiFileAuthState(
+    path.join(__dirname, "auth_info_baileys")
+  );
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
     version,
     auth: state,
-    printQRInTerminal: false, // ❌ disable QR
+    printQRInTerminal: false, // QR disabled (pairing code instead)
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -28,10 +58,8 @@ export async function startBot() {
 
     if (connection === "close") {
       const shouldReconnect =
-        lastDisconnect?.error instanceof Boom
-          ? lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut
-          : true;
-
+        (lastDisconnect.error as Boom)?.output?.statusCode !==
+        DisconnectReason.loggedOut;
       if (shouldReconnect) {
         startBot();
       }
@@ -44,7 +72,7 @@ export async function startBot() {
     }
   });
 
-  // If no credentials exist yet, request a pairing code
+  // 📌 Pairing code if not registered yet
   if (!state.creds.registered) {
     try {
       const code = await sock.requestPairingCode(phoneNumber);
@@ -63,7 +91,9 @@ export async function startBot() {
 
     const from = msg.key.remoteJid;
     const body =
-      msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      "";
 
     if (from === groupId) {
       if (body.toLowerCase() === ".on") {
@@ -80,16 +110,22 @@ export async function startBot() {
               const randomIndex = Math.floor(Math.random() * results.length);
               const r = results[randomIndex];
 
-              // send asset name first
+              // send asset name
               await sock.sendMessage(groupId, { text: `📊 Asset: ${r.asset}` });
 
               // wait before sending decision
-              await new Promise((resolve) => setTimeout(resolve, decisionDelaySeconds * 1000));
+              await new Promise((resolve) =>
+                setTimeout(resolve, decisionDelaySeconds * 1000)
+              );
 
               // send decision
-              await sock.sendMessage(groupId, { text: `📌 Decision: ${r.decision}` });
+              await sock.sendMessage(groupId, {
+                text: `📌 Decision: ${r.decision}`,
+              });
             } else {
-              await sock.sendMessage(groupId, { text: "⚠️ No signals available right now." });
+              await sock.sendMessage(groupId, {
+                text: "⚠️ No signals available right now.",
+              });
             }
           }, signalIntervalMinutes * 60 * 1000);
         }
