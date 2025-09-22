@@ -1,6 +1,6 @@
 // index.js
 import express from "express";
-import { startBot, latestPairingCode } from "./botManager.js";
+import { startBot, getLatestQR } from "./botManager.js";
 
 // --- Start WhatsApp Trading Bot ---
 startBot();
@@ -8,24 +8,30 @@ startBot();
 // --- Keep Alive Web Server ---
 const app = express();
 
-// A simple route to confirm service is alive
+// ✅ Home route
 app.get("/", (req, res) => {
-  if (latestPairingCode) {
-    res.send(`
-      <h1>✅ Pocket Option Bot is running!</h1>
-      <p>📲 Enter this pairing code in WhatsApp (Linked Devices > Link with phone number):</p>
-      <h2 style="font-size: 2em; color: green;">${latestPairingCode}</h2>
-    `);
-  } else {
-    res.send(`
-      <h1>✅ Pocket Option Bot is running!</h1>
-      <p>⚠️ No pairing code available right now.</p>
-      <p>If already linked, the bot is active on WhatsApp.</p>
-    `);
-  }
+  res.send("✅ Pocket Option Bot is running on Render!");
 });
 
-// Use Render's PORT (default 10000) or fallback to 3000 locally
+// ✅ QR route
+app.get("/qr", (req, res) => {
+  const qr = getLatestQR();
+  if (!qr) {
+    return res.send("✅ Bot already connected or no QR available.");
+  }
+
+  const html = `
+    <html>
+      <body style="text-align:center; font-family:Arial">
+        <h2>📲 Scan this QR with WhatsApp</h2>
+        <img src="${qr}" />
+      </body>
+    </html>
+  `;
+  res.send(html);
+});
+
+// ✅ Use Render's PORT (default 10000) or fallback to 3000
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
