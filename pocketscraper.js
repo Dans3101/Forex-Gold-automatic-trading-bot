@@ -1,15 +1,22 @@
 // pocketscraper.js
 import puppeteer from "puppeteer";
 
-// Use environment variables for safety (Render friendly)
+// ✅ Use environment variables for safety (Render friendly)
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
 export async function getPocketData() {
-  // Launch Puppeteer with flags needed for Render
+  // Launch Puppeteer with Render-safe flags
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    executablePath:
+      process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+    ],
   });
 
   const page = await browser.newPage();
