@@ -8,6 +8,8 @@ import { fileURLToPath } from "url";
 // ✅ WhatsApp client (Baileys v6+ requires default import)
 import baileys from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
+import qrcode from "qrcode-terminal"; // 🔑 For QR display in logs
+
 const {
   makeWASocket,
   useMultiFileAuthState,
@@ -40,7 +42,6 @@ console.log("📧 Pocket Option Email:", email || "❌ Not set");
 
 let isBotOn = false;
 let signalInterval;
-let latestPairingCode = null; // 🔑 store pairing code
 
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(
@@ -51,42 +52,36 @@ export async function startBot() {
   const sock = makeWASocket({
     version,
     auth: state,
-    printQRInTerminal: false, // QR disabled (pairing code instead)
+    printQRInTerminal: true, // ✅ Enable QR method
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", async (update) => {
-    const { connection, lastDisconnect } = update;
+  // 📌 Connection events
+  sock.ev.on("connection.update", (update) => {
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      console.log("📲 Scan this QR code with WhatsApp:");
+      qrcode.generate(qr, { small: true }); // ✅ Display QR in Render logs
+    }
+
+    if (connection === "open") {
+      console.log("✅ WhatsApp bot connected");
+    }
 
     if (connection === "close") {
       const shouldReconnect =
         lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
       if (shouldReconnect) {
+        console.log("♻️ Reconnecting...");
         startBot();
+      } else {
+        console.log("❌ Logged out. Please redeploy and scan QR again.");
       }
-    } else if (connection === "open") {
-      console.log("✅ WhatsApp bot connected");
-    } else if (update.qr) {
-      console.log("⚠️ QR login disabled. Use pairing code method.");
-    } else if (update.isNewLogin) {
-      console.log("🔗 Bot linked successfully!");
     }
   });
-
-  // 📌 Pairing code if not registered yet
-  if (!state.creds.registered) {
-    try {
-      const code = await sock.requestPairingCode(phoneNumber);
-      latestPairingCode = code; // save pairing code
-      console.log(
-        `📲 Enter this code in WhatsApp (Linked Devices > Link with phone number): ${code}`
-      );
-    } catch (err) {
-      console.error("❌ Failed to get pairing code:", err);
-    }
-  }
 
   // 📩 Handle messages
   sock.ev.on("messages.upsert", async ({ messages }) => {
@@ -145,6 +140,3 @@ export async function startBot() {
     }
   });
 }
-
-// ✅ export pairing code for index.js
-export { latestPairingCode };
