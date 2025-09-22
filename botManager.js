@@ -40,6 +40,7 @@ console.log("📧 Pocket Option Email:", email || "❌ Not set");
 
 let isBotOn = false;
 let signalInterval;
+let latestPairingCode = null; // 🔑 store pairing code
 
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(
@@ -78,6 +79,7 @@ export async function startBot() {
   if (!state.creds.registered) {
     try {
       const code = await sock.requestPairingCode(phoneNumber);
+      latestPairingCode = code; // save pairing code
       console.log(
         `📲 Enter this code in WhatsApp (Linked Devices > Link with phone number): ${code}`
       );
@@ -143,3 +145,6 @@ export async function startBot() {
     }
   });
 }
+
+// ✅ export pairing code for index.js
+export { latestPairingCode };
