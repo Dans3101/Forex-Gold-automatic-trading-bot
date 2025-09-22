@@ -1,13 +1,13 @@
 // config.js
 
 // 📌 WhatsApp Bot Settings
-export const phoneNumber = process.env.WHATSAPP_PHONE;   // WhatsApp number in international format
-export const groupId = process.env.WHATSAPP_GROUP;       // WhatsApp Group ID
+export const phoneNumber = process.env.WHATSAPP_PHONE || ""; // WhatsApp number in international format
+export const groupId = process.env.WHATSAPP_GROUP || "";     // WhatsApp Group ID
 
 // 📌 Pocket Option Login
-export const email = process.env.POCKET_EMAIL;           // Pocket Option account email
-export const password = process.env.POCKET_PASSWORD;     // Pocket Option account password
+export const email = process.env.POCKET_EMAIL || "";         // Pocket Option account email
+export const password = process.env.POCKET_PASSWORD || "";   // Pocket Option account password
 
-// 📌 Bot Signal Settings
-export const signalIntervalMinutes = process.env.SIGNAL_INTERVAL || 5;   // default: 5 min
-export const decisionDelaySeconds = process.env.DECISION_DELAY || 30;    // default: 30 sec
+// 📌 Bot Signal Settings (convert to numbers with defaults)
+export const signalIntervalMinutes = Number(process.env.SIGNAL_INTERVAL) || 5; // default: 5 min
+export const decisionDelaySeconds = Number(process.env.DECISION_DELAY) || 30;  // default: 30 sec
