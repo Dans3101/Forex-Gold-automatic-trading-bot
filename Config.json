@@ -8,6 +8,6 @@ export const groupId = process.env.WHATSAPP_GROUP || "";     // WhatsApp Group I
 export const email = process.env.POCKET_EMAIL || "";         // Pocket Option account email
 export const password = process.env.POCKET_PASSWORD || "";   // Pocket Option account password
 
-// 📌 Bot Signal Settings (convert to numbers with defaults)
+//  Bot Signal Settings (convert to numbers with defaults)
 export const signalIntervalMinutes = Number(process.env.SIGNAL_INTERVAL) || 5; // default: 5 min
 export const decisionDelaySeconds = Number(process.env.DECISION_DELAY) || 30;  // default: 30 sec
