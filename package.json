@@ -15,6 +15,6 @@
     "express": "^4.19.2",
     "@whiskeysockets/baileys": "^6.7.5",
     "@hapi/boom": "^10.0.1",
-    "qrcode": "^1.5.3"   // 👈 add this line
+    "qrcode": "^1.5.3"
   }
 }
