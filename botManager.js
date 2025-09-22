@@ -5,13 +5,15 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// ✅ WhatsApp client
-import makeWASocket, {
+// ✅ WhatsApp client (Baileys v6+ requires default import)
+import baileys from "@whiskeysockets/baileys";
+import { Boom } from "@hapi/boom";
+const {
+  makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-} from "@whiskeysockets/baileys";
-import { Boom } from "@hapi/boom";
+} = baileys;
 
 // ✅ Config (environment variables from config.js)
 import {
