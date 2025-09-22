@@ -58,8 +58,8 @@ export async function startBot() {
 
     if (connection === "close") {
       const shouldReconnect =
-        (lastDisconnect.error as Boom)?.output?.statusCode !==
-        DisconnectReason.loggedOut;
+        lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+
       if (shouldReconnect) {
         startBot();
       }
