@@ -5,10 +5,10 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// ✅ WhatsApp client (Baileys v6+ requires default import)
+// ✅ WhatsApp client (Baileys v6+)
 import baileys from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
-import qrcode from "qrcode-terminal"; // 🔑 For QR display in logs
+import qrcode from "qrcode"; // ✅ Generate PNG QR code
 
 const {
   makeWASocket,
@@ -17,7 +17,7 @@ const {
   fetchLatestBaileysVersion,
 } = baileys;
 
-// ✅ Config (environment variables from config.js)
+// ✅ Config (env variables)
 import {
   phoneNumber,
   groupId,
@@ -34,7 +34,7 @@ import { getPocketData } from "./pocketscraper.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Logs for debugging env vars
+// Logs
 console.log("🚀 Bot Manager loaded...");
 console.log("📞 WhatsApp Phone:", phoneNumber || "❌ Not set");
 console.log("👥 Group ID:", groupId || "❌ Not set");
@@ -42,6 +42,7 @@ console.log("📧 Pocket Option Email:", email || "❌ Not set");
 
 let isBotOn = false;
 let signalInterval;
+let latestQR = null; // 🔑 store QR as base64
 
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(
@@ -52,22 +53,23 @@ export async function startBot() {
   const sock = makeWASocket({
     version,
     auth: state,
-    printQRInTerminal: true, // ✅ Enable QR method
+    printQRInTerminal: false, // ❌ disable terminal QR
   });
 
   sock.ev.on("creds.update", saveCreds);
 
   // 📌 Connection events
-  sock.ev.on("connection.update", (update) => {
+  sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log("📲 Scan this QR code with WhatsApp:");
-      qrcode.generate(qr, { small: true }); // ✅ Display QR in Render logs
+      console.log("📲 New QR generated, available at /qr");
+      latestQR = await qrcode.toDataURL(qr); // save QR as base64 image
     }
 
     if (connection === "open") {
       console.log("✅ WhatsApp bot connected");
+      latestQR = null; // clear QR once logged in
     }
 
     if (connection === "close") {
@@ -78,7 +80,7 @@ export async function startBot() {
         console.log("♻️ Reconnecting...");
         startBot();
       } else {
-        console.log("❌ Logged out. Please redeploy and scan QR again.");
+        console.log("❌ Logged out. Please redeploy to scan new QR.");
       }
     }
   });
@@ -109,15 +111,12 @@ export async function startBot() {
               const randomIndex = Math.floor(Math.random() * results.length);
               const r = results[randomIndex];
 
-              // send asset name
               await sock.sendMessage(groupId, { text: `📊 Asset: ${r.asset}` });
 
-              // wait before sending decision
               await new Promise((resolve) =>
                 setTimeout(resolve, decisionDelaySeconds * 1000)
               );
 
-              // send decision
               await sock.sendMessage(groupId, {
                 text: `📌 Decision: ${r.decision}`,
               });
@@ -139,4 +138,9 @@ export async function startBot() {
       }
     }
   });
+}
+
+// ✅ Export latest QR for index.js
+export function getLatestQR() {
+  return latestQR;
 }
