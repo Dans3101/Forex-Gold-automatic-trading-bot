@@ -16,19 +16,28 @@ app.get("/", (req, res) => {
 // ✅ QR route
 app.get("/qr", (req, res) => {
   const qr = getLatestQR();
+
   if (!qr) {
-    return res.send("✅ Bot already connected or no QR available.");
+    return res.send(`
+      <html>
+        <body style="text-align:center; font-family:Arial; padding:40px;">
+          <h2>⚠️ No QR available</h2>
+          <p>The bot may already be connected to WhatsApp.<br>
+          If not, please redeploy and wait a few seconds for the QR to generate.</p>
+        </body>
+      </html>
+    `);
   }
 
-  const html = `
+  res.send(`
     <html>
-      <body style="text-align:center; font-family:Arial">
+      <body style="text-align:center; font-family:Arial; padding:40px;">
         <h2>📲 Scan this QR with WhatsApp</h2>
-        <img src="${qr}" />
+        <img src="${qr}" alt="WhatsApp QR Code" style="margin-top:20px;"/>
+        <p style="margin-top:20px;">Once scanned, the bot will connect automatically.</p>
       </body>
     </html>
-  `;
-  res.send(html);
+  `);
 });
 
 // ✅ Use Render's PORT (default 10000) or fallback to 3000
