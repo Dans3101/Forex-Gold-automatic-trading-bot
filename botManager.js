@@ -4,7 +4,6 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import express from "express"; // ✅ serve QR via HTTP
 
 // ✅ WhatsApp client (Baileys v6+)
 import baileys from "@whiskeysockets/baileys";
@@ -44,10 +43,6 @@ console.log("📧 Pocket Option Email:", email || "❌ Not set");
 let isBotOn = false;
 let signalInterval;
 let latestQR = null; // 🔑 store QR as base64
-
-// ✅ Express server
-const app = express();
-const PORT = process.env.PORT || 10000;
 
 export async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(
@@ -145,26 +140,7 @@ export async function startBot() {
   });
 }
 
-// ✅ Export latest QR for web
-app.get("/qr", (req, res) => {
-  if (!latestQR) {
-    return res.send("❌ No QR generated yet. Please wait...");
-  }
-  res.send(`
-    <html>
-      <body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;">
-        <h2>📲 Scan this QR with WhatsApp</h2>
-        <img src="${latestQR}" />
-      </body>
-    </html>
-  `);
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Web server running on port ${PORT}`);
-});
-
-// ✅ Export for index.js
+// ✅ Export latest QR for index.js
 export function getLatestQR() {
   return latestQR;
 }
