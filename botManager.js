@@ -1,32 +1,24 @@
 // botManager.js
 
-import TelegramBot from "node-telegram-bot-api";
 import { getPocketData } from "./pocketscraper.js";
 import {
-  telegramToken,
   telegramChatId,
   signalIntervalMinutes,
   decisionDelaySeconds,
 } from "./config.js";
 
 console.log("🚀 Telegram Bot Manager loaded...");
-console.log("🤖 Telegram Token:", telegramToken ? "✅ Set" : "❌ Missing");
 console.log("👥 Target Chat ID:", telegramChatId || "❌ Not set");
 
 let isBotOn = false;
 let signalInterval;
-let bot;
 
-// ✅ Start Telegram bot
-export function startBot() {
-  if (!telegramToken) {
-    console.error("❌ No TELEGRAM_TOKEN found in config.js or env vars");
+// ✅ Start Telegram bot (use bot instance from index.js)
+export function startBot(bot) {
+  if (!bot) {
+    console.error("❌ No bot instance passed into startBot()");
     return;
   }
-
-  bot = new TelegramBot(telegramToken, { polling: true });
-
-  bot.on("polling_error", (err) => console.error("Polling error:", err));
 
   bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
@@ -67,14 +59,12 @@ export function startBot() {
       if (isBotOn) {
         clearInterval(signalInterval);
         isBotOn = false;
-        await bot.sendMessage(
-          chatId,
-          "⛔ Trading signals bot *stopped*!",
-          { parse_mode: "Markdown" }
-        );
+        await bot.sendMessage(chatId, "⛔ Trading signals bot *stopped!*", {
+          parse_mode: "Markdown",
+        });
       }
     }
   });
 
-  console.log("✅ Telegram bot started and polling...");
+  console.log("✅ Telegram bot manager hooked into events...");
 }
