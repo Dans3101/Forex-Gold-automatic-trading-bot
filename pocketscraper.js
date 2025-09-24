@@ -1,63 +1,75 @@
 // pocketscraper.js
 import puppeteer from "puppeteer";
 
-// ✅ Use environment variables for safety (Render friendly)
+// ✅ Pocket Option credentials from environment variables (Render Dashboard → Environment)
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
 export async function getPocketData() {
-  // Launch Puppeteer with Render-safe flags
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath:
-      process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-    ],
-  });
-
-  const page = await browser.newPage();
+  let browser;
 
   try {
-    // Go to Pocket Option login page
+    // 🚀 Launch Puppeteer (Render-safe config)
+    browser = await puppeteer.launch({
+      headless: true,
+      executablePath:
+        process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--single-process", // <- good for small containers
+        "--disable-gpu",
+      ],
+    });
+
+    const page = await browser.newPage();
+    page.setDefaultTimeout(20000);
+
+    console.log("🌐 Navigating to Pocket Option login...");
+
     await page.goto("https://pocketoption.com/en/login/", {
       waitUntil: "networkidle2",
     });
 
-    // Fill login form
-    await page.type('input[name="email"]', EMAIL, { delay: 80 });
-    await page.type('input[name="password"]', PASSWORD, { delay: 80 });
-    await page.click('button[type="submit"]');
+    // 📝 Login
+    await page.type('input[name="email"]', EMAIL, { delay: 100 });
+    await page.type('input[name="password"]', PASSWORD, { delay: 100 });
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2" }),
+    ]);
 
-    // Wait for navigation to dashboard
-    await page.waitForNavigation({ waitUntil: "networkidle2" });
+    console.log("🔑 Logged in successfully. Loading dashboard...");
 
-    // Wait for assets list (adjust selector if Pocket changes layout)
+    // 🎯 Wait for asset list (adjust selector if UI changes)
     await page.waitForSelector(".asset-title", { timeout: 20000 });
 
-    // Scrape all available assets
     const assets = await page.$$eval(".asset-title", (nodes) =>
       nodes.map((n) => n.innerText.trim())
     );
 
     if (!assets || assets.length === 0) {
-      throw new Error("No assets found.");
+      throw new Error("No assets found on dashboard.");
     }
 
-    // Pick a random asset
-    const randomIndex = Math.floor(Math.random() * assets.length);
-    const selectedAsset = assets[randomIndex];
+    console.log(`✅ Found ${assets.length} assets.`);
 
-    // Wait 30 seconds before making decision
-    await new Promise((resolve) => setTimeout(resolve, 30000));
+    // 🎲 Random asset
+    const selectedAsset = assets[Math.floor(Math.random() * assets.length)];
 
-    // Random BUY or SELL decision
+    // 🤖 Add human-like delay before decision (5–15 sec)
+    const delayMs = 5000 + Math.floor(Math.random() * 10000);
+    console.log(`⏳ Waiting ${delayMs / 1000}s before making a decision...`);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    // 📌 Random BUY or SELL
     const decision = Math.random() > 0.5 ? "BUY" : "SELL";
 
-    await browser.close();
+    console.log(`📊 Signal -> Asset: ${selectedAsset}, Decision: ${decision}`);
 
     return [
       {
@@ -67,7 +79,11 @@ export async function getPocketData() {
     ];
   } catch (err) {
     console.error("❌ Error scraping Pocket Option:", err.message);
-    await browser.close();
     return [];
+  } finally {
+    if (browser) {
+      await browser.close();
+      console.log("🛑 Browser closed.");
+    }
   }
 }
