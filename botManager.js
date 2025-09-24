@@ -24,7 +24,10 @@ export function startBot(bot) {
     const chatId = msg.chat.id;
     const text = msg.text?.trim().toLowerCase();
 
-    // ✅ Always tell the user their chat ID
+    // ✅ Always log chat ID in Render logs
+    console.log(`💬 Message from chat ID: ${chatId}, text: ${text}`);
+
+    // ✅ Always tell the user their chat ID if they ask
     if (text === "/id") {
       await bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, {
         parse_mode: "Markdown",
