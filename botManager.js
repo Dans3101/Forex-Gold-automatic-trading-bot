@@ -1,5 +1,4 @@
 // botManager.js
-
 import { getPocketData } from "./pocketscraper.js";
 import {
   telegramChatId,
@@ -12,7 +11,7 @@ console.log("👥 Target Chat ID from config:", telegramChatId || "❌ Not set")
 
 let isBotOn = false;
 let signalInterval;
-const knownChats = new Set(); // ✅ Track chats we already introduced ourselves to
+const knownChats = new Set();
 
 // ✅ Start Telegram bot (use bot instance from index.js)
 export function startBot(bot) {
@@ -25,20 +24,19 @@ export function startBot(bot) {
     const chatId = msg.chat.id;
     const text = msg.text?.trim().toLowerCase();
 
-    // ✅ Always log chat ID in Render logs
     console.log(`💬 Message from chat ID: ${chatId}, text: ${text}`);
 
-    // ✅ Auto-send chat ID the first time this chat interacts
+    // ✅ Auto-send chat ID once per chat
     if (!knownChats.has(chatId)) {
       knownChats.add(chatId);
       await bot.sendMessage(
         chatId,
-        `👋 Hello! Thanks for messaging me.\n\n🆔 Your Chat ID is: \`${chatId}\`\n\n⚙️ Save this ID in your config (.env) as *TELEGRAM_CHAT_ID* to let me send signals here.`,
+        `👋 Hello! Your Chat ID is: \`${chatId}\`\n\nSave this ID in your .env as *TELEGRAM_CHAT_ID* if you want me to send signals here.`,
         { parse_mode: "Markdown" }
       );
     }
 
-    // ✅ Always tell the user their chat ID if they ask
+    // ✅ /id command
     if (text === "/id") {
       await bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, {
         parse_mode: "Markdown",
@@ -46,12 +44,9 @@ export function startBot(bot) {
       return;
     }
 
-    // ✅ Restrict bot control if telegramChatId is set
+    // ✅ Restrict trading commands if TELEGRAM_CHAT_ID is set
     if (telegramChatId && String(chatId) !== String(telegramChatId)) {
-      await bot.sendMessage(
-        chatId,
-        "⚠️ You are not authorized to control this bot."
-      );
+      await bot.sendMessage(chatId, "⚠️ You are not authorized to control signals.");
       return;
     }
 
@@ -67,7 +62,6 @@ export function startBot(bot) {
 
         signalInterval = setInterval(async () => {
           const results = await getPocketData();
-
           if (results.length > 0) {
             const randomIndex = Math.floor(Math.random() * results.length);
             const r = results[randomIndex];
@@ -92,6 +86,9 @@ export function startBot(bot) {
           parse_mode: "Markdown",
         });
       }
+    } else {
+      // ✅ Always reply to any message
+      await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
     }
   });
 
