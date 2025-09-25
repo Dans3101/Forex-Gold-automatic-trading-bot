@@ -2,52 +2,65 @@
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import { startBot } from "./botManager.js";
-import { telegramToken } from "./config.js";
+import { telegramToken, telegramChatId } from "./config.js";
 
 const app = express();
+app.use(express.json());
 
-// --- Create Telegram Bot in webhook mode ---
+// --- Initialize Telegram Bot ---
 if (!telegramToken) {
-  console.error("❌ TELEGRAM_TOKEN is missing. Please set it in your environment.");
+  console.error("❌ TELEGRAM_TOKEN missing");
   process.exit(1);
 }
-
 const bot = new TelegramBot(telegramToken, { webHook: true });
 
-// ✅ Get Render external URL
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
-if (!RENDER_URL) {
-  console.warn("⚠️ RENDER_EXTERNAL_URL is not set. Webhook may fail.");
-}
-
-// ✅ Tell Telegram to send updates to your Render URL
+// Webhook for Telegram
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
 if (RENDER_URL) {
-  bot.setWebHook(`${RENDER_URL}/bot${telegramToken}`);
+  console.log("⚙️ Setting Telegram webhook:", `${RENDER_URL}/bot${telegramToken}`);
+  try {
+    bot.setWebHook(`${RENDER_URL}/bot${telegramToken}`);
+  } catch (e) {
+    console.warn("⚠️ setWebHook failed:", e.message);
+  }
 }
 
-// ✅ Expose webhook endpoint
-app.post(`/bot${telegramToken}`, express.json(), (req, res) => {
+// Keep your botManager features (.on, .off etc.)
+startBot(bot);
+
+// --- Route: Telegram Webhook ---
+app.post(`/bot${telegramToken}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// --- Start trading bot logic (pass bot instance to manager) ---
-startBot(bot);
+// --- Route: TradingView Webhook (NEW) ---
+// TradingView will POST JSON here when your alert fires
+app.post("/webhook", async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const asset = payload.asset || payload.symbol || "UNKNOWN";
+    const action = (payload.decision || payload.action || payload.side || payload.signal || "").toUpperCase();
+    const comment = payload.comment || payload.note || "";
 
-// ✅ Home route
-app.get("/", (req, res) => {
-  res.send(`
-    ✅ Pocket Option Bot is Live!  
-    Your trading automation is now running smoothly on Render, fully integrated with Telegram via webhook.  
+    const msg = `📡 *Signal Received*\n📊 Asset: ${asset}\n📌 Action: ${action || "—"}${comment ? `\n💬 ${comment}` : ""}`;
 
-    This confirms successful deployment and backend connectivity—no errors, no clutter, just clean execution.  
-    Ideal for traders and developers seeking reliable signal delivery and real-time alerts.  
-    Stay tuned for updates, enhancements, and community-driven features! 🚀
-  `);
+    if (telegramChatId) {
+      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
+    } else {
+      console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send signal");
+    }
+
+    res.json({ ok: true, sent: telegramChatId });
+  } catch (err) {
+    console.error("Webhook error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
-// ✅ Use Render's PORT (default 10000) or fallback to 3000
+// Home
+app.get("/", (req, res) => res.send("✅ Bot is live — Webhook ready for TradingView"));
+
+// Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Web server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
