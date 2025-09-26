@@ -1,26 +1,48 @@
 // index.js
 import express from "express";
-import { Telegraf } from "telegraf";
+import TelegramBot from "node-telegram-bot-api";
+import { startBot } from "./botManager.js";
 import { telegramToken, telegramChatId } from "./config.js";
 
+const app = express();
+app.use(express.json());
+
+// --- Initialize Telegram Bot ---
 if (!telegramToken) {
   console.error("❌ TELEGRAM_TOKEN missing");
   process.exit(1);
 }
 
-const bot = new Telegraf(telegramToken);
-const app = express();
-app.use(express.json());
+// Create bot in webhook mode
+const bot = new TelegramBot(telegramToken, { webHook: true });
 
-// --- Basic command (to test bot) ---
-bot.start((ctx) => ctx.reply("🚀 Bot started with webhook! You will now receive signals here."));
+// --- Configure webhook for Telegram ---
+const RENDER_URL =
+  process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
 
-// --- Handle normal text messages ---
-bot.on("text", (ctx) => {
-  ctx.reply(`📩 You said: ${ctx.message.text}`);
+if (RENDER_URL) {
+  const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
+  console.log("⚙️ Setting Telegram webhook:", webhookUrl);
+
+  bot.setWebHook(webhookUrl).then(() => {
+    console.log("✅ Webhook set successfully");
+  }).catch(err => {
+    console.error("❌ Failed to set webhook:", err.message);
+  });
+} else {
+  console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
+}
+
+// --- Pass bot to your manager (commands: .on, .off, etc.) ---
+startBot(bot);
+
+// --- Route: Telegram Webhook ---
+app.post(`/bot${telegramToken}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
-// --- TradingView Webhook (NEW) ---
+// --- Route: TradingView Webhook (for live signals) ---
 app.post("/webhook", async (req, res) => {
   try {
     const payload = req.body || {};
@@ -31,61 +53,21 @@ app.post("/webhook", async (req, res) => {
     const msg = `📡 *Signal Received*\n📊 Asset: ${asset}\n📌 Action: ${action || "—"}${comment ? `\n💬 ${comment}` : ""}`;
 
     if (telegramChatId) {
-      await bot.telegram.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
+      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
     } else {
       console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send signal");
     }
 
     res.json({ ok: true, sent: telegramChatId });
   } catch (err) {
-    console.error("Webhook error:", err);
+    console.error("❌ Webhook error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// --- Auto Signal Generator (every 5 min) ---
-function generateRandomSignal() {
-  const assets = ["EUR/USD", "GBP/JPY", "BTC/USDT", "XAU/USD"];
-  const actions = ["BUY", "SELL"];
-  const asset = assets[Math.floor(Math.random() * assets.length)];
-  const action = actions[Math.floor(Math.random() * actions.length)];
-  return { asset, action };
-}
-
-function startAutoSignals() {
-  setInterval(async () => {
-    if (!telegramChatId) return;
-
-    const { asset, action } = generateRandomSignal();
-    const msg = `⚡ *Auto Signal*\n📊 Asset: ${asset}\n📌 Action: ${action}`;
-    try {
-      await bot.telegram.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
-      console.log("✅ Auto signal sent:", asset, action);
-    } catch (err) {
-      console.error("❌ Failed to send auto signal:", err.message);
-    }
-  }, 5 * 60 * 1000); // every 5 minutes
-}
-
-startAutoSignals();
-
-// --- Set Telegram webhook ---
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
-if (RENDER_URL) {
-  const webhookPath = "/telegram-webhook";
-  bot.telegram.setWebhook(`${RENDER_URL}${webhookPath}`)
-    .then(() => console.log(`✅ Webhook set: ${RENDER_URL}${webhookPath}`))
-    .catch(err => console.error("❌ Webhook error:", err));
-
-  // Attach webhook to Express
-  app.use(bot.webhookCallback(webhookPath));
-} else {
-  console.warn("⚠️ RENDER_EXTERNAL_URL not set, webhook may fail.");
-}
-
-// --- Home ---
+// --- Home route ---
 app.get("/", (req, res) => {
-  res.send("✅ Bot is live — Auto signals + Webhooks active");
+  res.send("✅ Bot is live — Telegram + TradingView webhook ready 🚀");
 });
 
 // --- Start server ---
