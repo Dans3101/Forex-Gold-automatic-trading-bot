@@ -23,15 +23,20 @@ if (RENDER_URL) {
   const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
   console.log("⚙️ Setting Telegram webhook:", webhookUrl);
 
-  bot.setWebHook(webhookUrl)
-    .then(() => console.log("✅ Webhook set successfully"))
-    .catch((err) => console.error("❌ Failed to set webhook:", err.message));
+  bot
+    .setWebHook(webhookUrl)
+    .then(() => {
+      console.log("✅ Telegram webhook set successfully");
+    })
+    .catch((err) => {
+      console.error("❌ Failed to set webhook:", err.message);
+    });
 } else {
   console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
 }
 
-// --- Pass bot to manager (with .on / .off commands) ---
-const botManager = startBot(bot);
+// --- Pass bot instance to botManager ---
+startBot(bot);
 
 // --- Route: Telegram Webhook ---
 app.post(`/bot${telegramToken}`, (req, res) => {
@@ -39,7 +44,7 @@ app.post(`/bot${telegramToken}`, (req, res) => {
   res.sendStatus(200);
 });
 
-// --- Route: TradingView Webhook ---
+// --- Route: TradingView Webhook (for live signals) ---
 app.post("/webhook", async (req, res) => {
   try {
     const payload = req.body || {};
@@ -53,23 +58,30 @@ app.post("/webhook", async (req, res) => {
     ).toUpperCase();
     const comment = payload.comment || payload.note || "";
 
-    const msg = `📡 *TradingView Signal*\n📊 Asset: ${asset}\n📌 Action: ${
+    // Telegram message format
+    const msg = `📡 *TradingView Signal*\n\n📊 Asset: ${asset}\n📌 Action: ${
       action || "—"
     }${comment ? `\n💬 ${comment}` : ""}`;
 
-    // ✅ Only send if bot is ON
-    if (telegramChatId && botManager.isBotOn()) {
+    if (telegramChatId) {
       await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
       console.log("✅ Signal forwarded to Telegram:", msg);
     } else {
-      console.warn("⚠️ Bot is OFF or TELEGRAM_CHAT_ID missing, signal not sent");
+      console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send signal");
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, received: payload });
   } catch (err) {
     console.error("❌ Webhook error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// --- Route: GET webhook (for browser testing) ---
+app.get("/webhook", (req, res) => {
+  res.send(
+    "✅ Webhook endpoint is alive. Use POST requests (TradingView alerts) to send signals."
+  );
 });
 
 // --- Home route ---
