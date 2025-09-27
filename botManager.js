@@ -1,12 +1,15 @@
-import { telegramChatId } from "./config.js";
+// botManager.js
+import { telegramChatId, signalIntervalMinutes } from "./config.js";
+import { getPocketSignals } from "./pocketscraper.js";
 
 console.log("🚀 Telegram Bot Manager loaded...");
 console.log("👥 Target Chat ID from config:", telegramChatId || "❌ Not set");
 
 let isBotOn = false;
 const knownChats = new Set();
+let scraperInterval = null; // ⏱️ store scraping timer
 
-// ✅ Start Telegram bot (use bot instance from index.js)
+// ✅ Start Telegram bot
 export function startBot(bot) {
   if (!bot) {
     console.error("❌ No bot instance passed into startBot()");
@@ -47,13 +50,40 @@ export function startBot(bot) {
     if (text === ".on") {
       if (!isBotOn) {
         isBotOn = true;
-        await bot.sendMessage(chatId, "✅ Signal forwarding *enabled*! Waiting for TradingView alerts...");
+        await bot.sendMessage(chatId, "✅ Signal forwarding *enabled*! Waiting for TradingView alerts & Pocket Option signals...");
+
+        // Start Pocket Option scraper ⏱️
+        scraperInterval = setInterval(async () => {
+          try {
+            const signals = await getPocketSignals();
+            if (signals.length > 0) {
+              for (const sig of signals) {
+                await bot.sendMessage(
+                  telegramChatId,
+                  `📊 Pocket Signal: *${sig.asset}* → ${sig.decision}`,
+                  { parse_mode: "Markdown" }
+                );
+              }
+            }
+          } catch (err) {
+            console.error("❌ Scraper error:", err.message);
+            await bot.sendMessage(telegramChatId, "⚠️ Error fetching Pocket Option signals.");
+          }
+        }, signalIntervalMinutes * 60 * 1000);
       }
+
     } else if (text === ".off") {
       if (isBotOn) {
         isBotOn = false;
         await bot.sendMessage(chatId, "⛔ Signal forwarding *disabled*.");
+
+        // Stop scraper
+        if (scraperInterval) {
+          clearInterval(scraperInterval);
+          scraperInterval = null;
+        }
       }
+
     } else {
       await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
     }
