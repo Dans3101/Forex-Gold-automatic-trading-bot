@@ -1,58 +1,89 @@
 // index.js
 import express from "express";
-import bodyParser from "body-parser";
 import TelegramBot from "node-telegram-bot-api";
-import dotenv from "dotenv";
 import { startBot } from "./botManager.js";
 import { telegramToken, telegramChatId } from "./config.js";
 
-dotenv.config();
-
 const app = express();
-const port = process.env.PORT || 3000;
+app.use(express.json());
 
-app.use(bodyParser.json());
-
-// ✅ Telegram bot setup
+// --- Initialize Telegram Bot ---
 if (!telegramToken) {
-  console.error("❌ TELEGRAM_TOKEN is missing in .env file!");
+  console.error("❌ TELEGRAM_TOKEN missing");
   process.exit(1);
 }
-const bot = new TelegramBot(telegramToken, { polling: true });
+
+// 🚫 Disable polling, ✅ use webhook only
+const bot = new TelegramBot(telegramToken, {
+  polling: false,
+  webHook: true,
+});
+
+// --- Configure webhook for Telegram ---
+const RENDER_URL =
+  process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
+
+if (RENDER_URL) {
+  const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
+  console.log("⚙️ Setting Telegram webhook:", webhookUrl);
+
+  bot
+    .setWebHook(webhookUrl)
+    .then(() => {
+      console.log("✅ Webhook set successfully");
+    })
+    .catch((err) => {
+      console.error("❌ Failed to set webhook:", err.message);
+    });
+} else {
+  console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
+}
+
+// --- Pass bot to your manager (commands: .on, .off, etc.) ---
 startBot(bot);
 
-// ✅ Webhook endpoint for TradingView alerts
+// --- Route: Telegram Webhook ---
+app.post(`/bot${telegramToken}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// --- Route: TradingView Webhook (for live signals) ---
 app.post("/webhook", async (req, res) => {
-  console.log("📩 Incoming webhook request from TradingView:");
-  console.log(JSON.stringify(req.body, null, 2)); // full payload in logs
-
-  if (!req.body) {
-    console.error("❌ Empty request body!");
-    return res.status(400).send("Bad Request: No data received");
-  }
-
-  // Try to extract fields (fall back if missing)
-  const asset = req.body.asset || "Unknown Asset";
-  const decision = req.body.decision || req.body.side || "No Decision";
-
   try {
-    await bot.sendMessage(
-      telegramChatId,
-      `📡 *New TradingView Signal Received:*\n\n📊 Asset: ${asset}\n📌 Decision: ${decision}`,
-      { parse_mode: "Markdown" }
-    );
-    console.log(`✅ Signal forwarded to Telegram: ${asset} → ${decision}`);
-    res.status(200).send("Signal forwarded to Telegram");
+    const payload = req.body || {};
+    const asset = payload.asset || payload.symbol || "UNKNOWN";
+    const action = (
+      payload.decision ||
+      payload.action ||
+      payload.side ||
+      payload.signal ||
+      ""
+    ).toUpperCase();
+    const comment = payload.comment || payload.note || "";
+
+    const msg = `📡 *Signal Received*\n📊 Asset: ${asset}\n📌 Action: ${
+      action || "—"
+    }${comment ? `\n💬 ${comment}` : ""}`;
+
+    if (telegramChatId) {
+      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
+    } else {
+      console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send signal");
+    }
+
+    res.json({ ok: true, sent: telegramChatId });
   } catch (err) {
-    console.error("❌ Failed to forward signal:", err.message);
-    res.status(500).send("Failed to send signal to Telegram");
+    console.error("❌ Webhook error:", err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
+// --- Home route ---
 app.get("/", (req, res) => {
-  res.send("✅ Bot is running! Webhook endpoint is at /webhook");
+  res.send("✅ Bot is live — Telegram + TradingView webhook ready 🚀");
 });
 
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
-});
+// --- Start server ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
