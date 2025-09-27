@@ -1,94 +1,58 @@
 // index.js
 import express from "express";
+import bodyParser from "body-parser";
 import TelegramBot from "node-telegram-bot-api";
+import dotenv from "dotenv";
 import { startBot } from "./botManager.js";
 import { telegramToken, telegramChatId } from "./config.js";
 
-const app = express();
-app.use(express.json());
+dotenv.config();
 
-// --- Initialize Telegram Bot ---
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use(bodyParser.json());
+
+// ✅ Telegram bot setup
 if (!telegramToken) {
-  console.error("❌ TELEGRAM_TOKEN missing");
+  console.error("❌ TELEGRAM_TOKEN is missing in .env file!");
   process.exit(1);
 }
-
-const bot = new TelegramBot(telegramToken, { webHook: true });
-
-// --- Configure webhook for Telegram ---
-const RENDER_URL =
-  process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
-
-if (RENDER_URL) {
-  const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
-  console.log("⚙️ Setting Telegram webhook:", webhookUrl);
-
-  bot
-    .setWebHook(webhookUrl)
-    .then(() => {
-      console.log("✅ Telegram webhook set successfully");
-    })
-    .catch((err) => {
-      console.error("❌ Failed to set webhook:", err.message);
-    });
-} else {
-  console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
-}
-
-// --- Pass bot instance to botManager ---
+const bot = new TelegramBot(telegramToken, { polling: true });
 startBot(bot);
 
-// --- Route: Telegram Webhook ---
-app.post(`/bot${telegramToken}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-// --- Route: TradingView Webhook (for live signals) ---
+// ✅ Webhook endpoint for TradingView alerts
 app.post("/webhook", async (req, res) => {
+  console.log("📩 Incoming webhook request from TradingView:");
+  console.log(JSON.stringify(req.body, null, 2)); // full payload in logs
+
+  if (!req.body) {
+    console.error("❌ Empty request body!");
+    return res.status(400).send("Bad Request: No data received");
+  }
+
+  // Try to extract fields (fall back if missing)
+  const asset = req.body.asset || "Unknown Asset";
+  const decision = req.body.decision || req.body.side || "No Decision";
+
   try {
-    const payload = req.body || {};
-    const asset = payload.asset || payload.symbol || "UNKNOWN";
-    const action = (
-      payload.decision ||
-      payload.action ||
-      payload.side ||
-      payload.signal ||
-      ""
-    ).toUpperCase();
-    const comment = payload.comment || payload.note || "";
-
-    // Telegram message format
-    const msg = `📡 *TradingView Signal*\n\n📊 Asset: ${asset}\n📌 Action: ${
-      action || "—"
-    }${comment ? `\n💬 ${comment}` : ""}`;
-
-    if (telegramChatId) {
-      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
-      console.log("✅ Signal forwarded to Telegram:", msg);
-    } else {
-      console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send signal");
-    }
-
-    res.json({ ok: true, received: payload });
+    await bot.sendMessage(
+      telegramChatId,
+      `📡 *New TradingView Signal Received:*\n\n📊 Asset: ${asset}\n📌 Decision: ${decision}`,
+      { parse_mode: "Markdown" }
+    );
+    console.log(`✅ Signal forwarded to Telegram: ${asset} → ${decision}`);
+    res.status(200).send("Signal forwarded to Telegram");
   } catch (err) {
-    console.error("❌ Webhook error:", err);
-    res.status(500).json({ ok: false, error: err.message });
+    console.error("❌ Failed to forward signal:", err.message);
+    res.status(500).send("Failed to send signal to Telegram");
   }
 });
 
-// --- Route: GET webhook (for browser testing) ---
-app.get("/webhook", (req, res) => {
-  res.send(
-    "✅ Webhook endpoint is alive. Use POST requests (TradingView alerts) to send signals."
-  );
-});
-
-// --- Home route ---
 app.get("/", (req, res) => {
-  res.send("✅ Bot is live — Telegram + TradingView webhook ready 🚀");
+  res.send("✅ Bot is running! Webhook endpoint is at /webhook");
 });
 
-// --- Start server ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
+});
