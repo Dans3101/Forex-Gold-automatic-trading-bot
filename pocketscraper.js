@@ -5,16 +5,15 @@ import puppeteer from "puppeteer";
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
-export async function getPocketData() {
+export async function getPocketSignals() {
   let browser;
 
   try {
     console.log("🔍 Launching scraper...");
 
-    // 🚀 Launch Puppeteer safely on Render
     browser = await puppeteer.launch({
       headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, 
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
@@ -23,12 +22,12 @@ export async function getPocketData() {
         "--no-first-run",
         "--no-zygote",
         "--single-process",
-        "--disable-gpu"
+        "--disable-gpu",
       ],
     });
 
     const page = await browser.newPage();
-    page.setDefaultTimeout(20000);
+    page.setDefaultTimeout(25000);
 
     console.log("🌐 Navigating to Pocket Option login...");
 
@@ -47,38 +46,55 @@ export async function getPocketData() {
 
     console.log("🔑 Logged in successfully. Loading dashboard...");
 
-    // 🎯 Wait for asset list
-    await page.waitForSelector(".asset-title", { timeout: 20000 });
+    // 🎯 Wait for signal section (social trading / traders choice)
+    await page.waitForSelector(".signals, .traders-choices", {
+      timeout: 30000,
+    });
 
-    const assets = await page.$$eval(".asset-title", (nodes) =>
-      nodes.map((n) => n.innerText.trim())
+    // 📌 Extract signals
+    const signals = await page.$$eval(
+      ".signals .signal-item, .traders-choices .choice-item",
+      (nodes) =>
+        nodes.map((n) => {
+          const asset =
+            n.querySelector(".asset-title")?.innerText?.trim() ||
+            n.querySelector(".asset")?.innerText?.trim() ||
+            "Unknown Asset";
+
+          const direction =
+            n.querySelector(".buy")?.innerText?.trim() ||
+            n.querySelector(".sell")?.innerText?.trim() ||
+            n.querySelector(".direction")?.innerText?.trim();
+
+          const percentText =
+            n.querySelector(".percent")?.innerText?.trim() || "";
+
+          const percent = percentText.replace("%", "").trim();
+
+          return {
+            asset,
+            decision: direction ? direction.toUpperCase() : null,
+            strength: percent ? parseInt(percent, 10) : null,
+            raw: n.innerText.trim(),
+          };
+        })
     );
 
-    if (!assets || assets.length === 0) {
-      throw new Error("No assets found on dashboard.");
+    // 🎯 Filter strong signals only (≥70%)
+    const strongSignals = signals.filter(
+      (s) => s.decision && s.strength && s.strength >= 70
+    );
+
+    if (!strongSignals.length) {
+      console.log("⚠️ No strong signals found.");
+      return [];
     }
 
-    console.log(`✅ Found ${assets.length} assets.`);
+    console.log(`📊 Found ${strongSignals.length} strong signals:`);
+    console.log(strongSignals);
 
-    // 🎲 Random asset
-    const selectedAsset = assets[Math.floor(Math.random() * assets.length)];
-
-    // 🤖 Add human-like delay before decision (5–15 sec)
-    const delayMs = 5000 + Math.floor(Math.random() * 10000);
-    console.log(`⏳ Waiting ${delayMs / 1000}s before making a decision...`);
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-
-    // 📌 Random BUY or SELL
-    const decision = Math.random() > 0.5 ? "BUY" : "SELL";
-
-    console.log(`📊 Signal -> Asset: ${selectedAsset}, Decision: ${decision}`);
-
-    return [
-      {
-        asset: selectedAsset,
-        decision,
-      },
-    ];
+    // Return last 1–2 strong signals
+    return strongSignals.slice(-2);
   } catch (err) {
     console.error("❌ Error scraping Pocket Option:", err.message);
     return [];
