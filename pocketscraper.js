@@ -11,13 +11,14 @@ import fs from "fs";
  *
  * Features:
  *  - Logs into PocketOption with POCKET_EMAIL + POCKET_PASSWORD
- *  - Captures debug screenshots ("debug-login.png", "debug-dashboard.png", "debug-chat.png")
+ *  - Captures debug screenshots ("debug-login-*.png", "debug-dashboard-*.png", "debug-chat-*.png")
  *  - If scraping fails, returns [] and logs helpful errors
  */
 
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
+/* ---------- Helpers ---------- */
 async function launchBrowser() {
   const execPath =
     process.env.PUPPETEER_EXECUTABLE_PATH ||
@@ -56,10 +57,14 @@ async function saveShot(page, label = "debug") {
   }
 }
 
-/* Simple parser for live chat signals */
+/* Parse live chat text for trading signals */
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-200);
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(-300); // last ~300 lines
 
   const signals = [];
   const decisionRE = /\b(BUY|SELL|CALL|PUT|UP|DOWN|LONG|SHORT)\b/i;
@@ -75,7 +80,7 @@ function parseTextForSignals(text, limit = 10) {
     if (!decisionRE.test(line)) continue;
 
     const decision = (line.match(decisionRE) || [])[0]?.toUpperCase();
-    const strong = strongRE.test(line) ? "Strong" : "Normal";
+    const strength = strongRE.test(line) ? "Strong" : "Normal";
 
     let asset = null;
     for (const r of assetREs) {
@@ -87,11 +92,13 @@ function parseTextForSignals(text, limit = 10) {
     }
 
     if (decision) {
-      signals.push({ asset: asset || "UNKNOWN", decision, strength: strong, raw: line });
+      signals.push({ asset: asset || "UNKNOWN", decision, strength, raw: line });
     }
   }
   return signals;
 }
+
+/* ---------- Main Functions ---------- */
 
 /* --- getPocketData --- */
 export async function getPocketData() {
@@ -104,7 +111,7 @@ export async function getPocketData() {
   try {
     browser = await launchBrowser();
     const page = await browser.newPage();
-    page.setDefaultTimeout(20000);
+    page.setDefaultTimeout(25000);
 
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
     await saveShot(page, "debug-login");
@@ -114,11 +121,11 @@ export async function getPocketData() {
     await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
     await Promise.all([
       page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
     ]);
     await saveShot(page, "debug-dashboard");
 
-    // assets
+    // grab some asset names
     const assets = await page.$$eval("*", (nodes) =>
       nodes
         .map((n) => n.innerText || n.textContent || "")
@@ -153,21 +160,29 @@ export async function getPocketSignals({ onlyStrong = false, limit = 5 } = {}) {
   try {
     browser = await launchBrowser();
     const page = await browser.newPage();
-    page.setDefaultTimeout(20000);
+    page.setDefaultTimeout(25000);
 
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
     await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
     await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
     await Promise.all([
       page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
     ]);
+
+    // capture screenshot
     await saveShot(page, "debug-chat");
 
+    // scrape raw text (fallback mode)
     let text = await page.evaluate(() => document.body.innerText || "");
     const parsed = parseTextForSignals(text, 50);
 
-    return onlyStrong ? parsed.filter((s) => /strong/i.test(s.strength)).slice(0, limit) : parsed.slice(0, limit);
+    const results = onlyStrong
+      ? parsed.filter((s) => /strong/i.test(s.strength)).slice(0, limit)
+      : parsed.slice(0, limit);
+
+    console.log(`✅ Extracted ${results.length} signals`);
+    return results;
   } catch (err) {
     console.error("❌ getPocketSignals error:", err.message);
     return [];
