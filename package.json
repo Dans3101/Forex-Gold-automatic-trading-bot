@@ -5,8 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "postinstall": "node ./node_modules/puppeteer/install.js || true"
+    "start": "node index.js"
   },
   "engines": {
     "node": "22.x"
