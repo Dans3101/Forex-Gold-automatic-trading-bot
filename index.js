@@ -3,9 +3,7 @@ import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import { startBot } from "./botManager.js";
 import { telegramToken, telegramChatId, signalIntervalMinutes } from "./config.js";
-import { getPocketData } from "./pocketscraper.js";
-import fs from "fs";
-import path from "path";
+import { getPocketSignals } from "./pocketscraper.js";
 
 const app = express();
 app.use(express.json());
@@ -33,9 +31,11 @@ if (RENDER_URL) {
     .setWebHook(webhookUrl)
     .then(() => console.log("✅ Webhook set successfully"))
     .catch((err) => console.error("❌ Failed to set webhook:", err.message));
+} else {
+  console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
 }
 
-// --- Pass bot to your manager ---
+// --- Pass bot to manager (commands: .on, .off, etc.) ---
 const botState = startBot(bot);
 
 // --- Route: Telegram Webhook ---
@@ -44,7 +44,7 @@ app.post(`/bot${telegramToken}`, (req, res) => {
   res.sendStatus(200);
 });
 
-// --- Route: TradingView Webhook (for live signals) ---
+// --- Route: TradingView Webhook ---
 app.post("/webhook", async (req, res) => {
   try {
     const payload = req.body || {};
@@ -75,30 +75,6 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// --- Debug Screenshots Route ---
-app.get("/debug-screens", (req, res) => {
-  const dir = process.cwd();
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => f.startsWith("debug-") && f.endsWith(".png"));
-
-  if (!files.length) {
-    return res.send("⚠️ No debug screenshots found yet.");
-  }
-
-  const list = files
-    .map(
-      (f) =>
-        `<div><p>${f}</p><img src="/screens/${f}" style="max-width:600px;border:1px solid #ccc;margin:10px"/></div>`
-    )
-    .join("<hr/>");
-
-  res.send(`<h1>📸 Debug Screenshots</h1>${list}`);
-});
-
-// --- Serve static screenshot files ---
-app.use("/screens", express.static(process.cwd()));
-
 // --- Home route ---
 app.get("/", (req, res) => {
   res.send("✅ Bot is live — Telegram + TradingView + PocketScraper ready 🚀");
@@ -117,12 +93,12 @@ async function runScraper() {
     return;
   }
 
-  console.log("🔍 Running PocketOption scraper...");
-  const signals = await getPocketData();
+  console.log("🔍 Running PocketOption signal scraper...");
+  const signals = await getPocketSignals({ onlyStrong: true, limit: 5 });
 
   if (signals.length > 0 && telegramChatId) {
     for (const s of signals) {
-      const msg = `🤖 *Scraped Signal*\n📊 Asset: ${s.asset}\n📌 Action: ${s.decision}`;
+      const msg = `🤖 *Live Chat Signal*\n📊 Asset: ${s.asset}\n📌 Action: ${s.decision}\n💪 Strength: ${s.strength}\n📝 Raw: ${s.raw}`;
       await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
     }
   } else {
@@ -133,4 +109,5 @@ async function runScraper() {
 // Schedule scraper
 const intervalMs = signalIntervalMinutes * 60 * 1000;
 console.log(`⏱️ Scraper scheduled every ${signalIntervalMinutes} minutes.`);
+
 setInterval(runScraper, intervalMs);
