@@ -1,115 +1,117 @@
 // index.js
-
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
-import puppeteer from "puppeteer";
-import dotenv from "dotenv";
-import {
-  telegramToken,
-  telegramChatId,
-  signalIntervalMinutes,
-  decisionDelaySeconds,
-  email,
-  password
-} from "./config.js";
-
-dotenv.config();
+import { startBot } from "./botManager.js";
+import { telegramToken, telegramChatId, signalIntervalMinutes } from "./config.js";
+import { getPocketData } from "./pocketscraper.js";
 
 const app = express();
 app.use(express.json());
 
-let bot;
-let tradingActive = false;
-let scraperInterval;
-
-// 🚀 Initialize Telegram Bot
-if (telegramToken) {
-  bot = new TelegramBot(telegramToken, { polling: true });
-
-  console.log("🚀 Telegram Bot Manager loaded...");
-  console.log("👥 Target Chat ID from config:", telegramChatId);
-
-  // Commands
-  bot.on("message", (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text.trim().toLowerCase();
-
-    console.log(`💬 Message from chat ID: ${chatId}, text: ${text}`);
-
-    if (text === ".on") {
-      tradingActive = true;
-      bot.sendMessage(chatId, "✅ Trading bot is now ON");
-      startScraper();
-    }
-
-    if (text === ".off") {
-      tradingActive = false;
-      bot.sendMessage(chatId, "🛑 Trading bot is now OFF");
-      stopScraper();
-    }
-  });
+// --- Initialize Telegram Bot ---
+if (!telegramToken) {
+  console.error("❌ TELEGRAM_TOKEN missing");
+  process.exit(1);
 }
 
-// 🕵️ Scraper Function
-async function scrapePocketOption() {
-  console.log("🔍 Launching scraper...");
+const bot = new TelegramBot(telegramToken, {
+  polling: false,
+  webHook: true,
+});
+
+// --- Configure webhook for Telegram ---
+const RENDER_URL =
+  process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
+
+if (RENDER_URL) {
+  const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
+  console.log("⚙️ Setting Telegram webhook:", webhookUrl);
+
+  bot
+    .setWebHook(webhookUrl)
+    .then(() => {
+      console.log("✅ Webhook set successfully");
+    })
+    .catch((err) => {
+      console.error("❌ Failed to set webhook:", err.message);
+    });
+} else {
+  console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
+}
+
+// --- Pass bot to your manager (commands: .on, .off, etc.) ---
+const botState = startBot(bot);
+
+// --- Route: Telegram Webhook ---
+app.post(`/bot${telegramToken}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// --- Route: TradingView Webhook (for live signals) ---
+app.post("/webhook", async (req, res) => {
   try {
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
+    const payload = req.body || {};
+    const asset = payload.asset || payload.symbol || "UNKNOWN";
+    const action = (
+      payload.decision ||
+      payload.action ||
+      payload.side ||
+      payload.signal ||
+      ""
+    ).toUpperCase();
+    const comment = payload.comment || payload.note || "";
 
-    const page = await browser.newPage();
-    await page.goto("https://pocketoption.com/en/", {
-      waitUntil: "networkidle2",
-      timeout: 60000,
-    });
+    const msg = `📡 *Signal Received*\n📊 Asset: ${asset}\n📌 Action: ${
+      action || "—"
+    }${comment ? `\n💬 ${comment}` : ""}`;
 
-    // Optional login (if creds set in .env)
-    if (email && password) {
-      await page.click("a[href='/en/login/']");
-      await page.waitForSelector("input[name='email']");
-      await page.type("input[name='email']", email, { delay: 50 });
-      await page.type("input[name='password']", password, { delay: 50 });
-      await page.click("button[type='submit']");
-      await page.waitForTimeout(5000);
+    if (telegramChatId) {
+      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
+    } else {
+      console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send signal");
     }
 
-    // Example scraping — change to what you need
-    const title = await page.title();
-    console.log("📊 Scraped Page Title:", title);
-
-    if (bot && telegramChatId) {
-      await bot.sendMessage(telegramChatId, `📊 PocketOption Page Title: ${title}`);
-    }
-
-    await browser.close();
+    res.json({ ok: true, sent: telegramChatId });
   } catch (err) {
-    console.error("❌ Scraper error:", err.message);
-    if (bot && telegramChatId) {
-      bot.sendMessage(telegramChatId, `❌ Scraper error: ${err.message}`);
+    console.error("❌ Webhook error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// --- Home route ---
+app.get("/", (req, res) => {
+  res.send("✅ Bot is live — Telegram + TradingView + PocketScraper ready 🚀");
+});
+
+// --- Start server ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+// =======================
+// 🔄 Auto Scraper Loop
+// =======================
+async function runScraper() {
+  if (!botState.isBotOn()) {
+    console.log("⏸️ Bot is OFF (.on to enable) → skipping scrape.");
+    return;
+  }
+
+  console.log("🔍 Running PocketOption scraper...");
+  const signals = await getPocketData();
+
+  if (signals.length > 0 && telegramChatId) {
+    for (const s of signals) {
+      const msg = `🤖 *Scraped Signal*\n📊 Asset: ${s.asset}\n📌 Action: ${s.decision}`;
+      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
     }
+  } else {
+    console.log("⚠️ No signals found or TELEGRAM_CHAT_ID missing.");
   }
 }
 
-// 🚦 Start & Stop Scraper
-function startScraper() {
-  if (scraperInterval) clearInterval(scraperInterval);
-  scraperInterval = setInterval(scrapePocketOption, signalIntervalMinutes * 60 * 1000);
-  console.log("⏳ Scraper started with interval:", signalIntervalMinutes, "minutes");
-}
+// Schedule scraper
+const intervalMs = signalIntervalMinutes * 60 * 1000;
+console.log(`⏱️ Scraper scheduled every ${signalIntervalMinutes} minutes.`);
 
-function stopScraper() {
-  if (scraperInterval) clearInterval(scraperInterval);
-  console.log("🛑 Scraper stopped");
-}
-
-// 🌐 Express Server (needed for Render to stay alive)
-app.get("/", (req, res) => {
-  res.send("🚀 Pocket Option Trading Bot is running!");
-});
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+setInterval(runScraper, intervalMs);
