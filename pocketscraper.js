@@ -5,11 +5,11 @@ import puppeteer from "puppeteer";
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
-export async function getPocketData() {
+export async function getPocketSignals() {
   let browser;
 
   try {
-    // 🚀 Launch Puppeteer (Render-safe config)
+    // 🚀 Launch Puppeteer with Render-safe configuration
     browser = await puppeteer.launch({
       headless: true,
       executablePath:
@@ -35,7 +35,7 @@ export async function getPocketData() {
       waitUntil: "networkidle2",
     });
 
-    // 📝 Login
+    // 📝 Login to Pocket Option
     await page.type('input[name="email"]', EMAIL, { delay: 100 });
     await page.type('input[name="password"]', PASSWORD, { delay: 100 });
     await Promise.all([
@@ -45,9 +45,10 @@ export async function getPocketData() {
 
     console.log("🔑 Logged in successfully. Loading dashboard...");
 
-    // 🎯 Wait for asset list (adjust selector if UI changes)
+    // 🎯 Wait for asset list to be ready (adjust selector if the UI changes)
     await page.waitForSelector(".asset-title", { timeout: 20000 });
 
+    // Scrape all available assets
     const assets = await page.$$eval(".asset-title", (nodes) =>
       nodes.map((n) => n.innerText.trim())
     );
@@ -58,15 +59,15 @@ export async function getPocketData() {
 
     console.log(`✅ Found ${assets.length} assets.`);
 
-    // 🎲 Random asset
+    // 🎲 Pick a random asset from the list
     const selectedAsset = assets[Math.floor(Math.random() * assets.length)];
 
-    // 🤖 Add human-like delay before decision (5–15 sec)
+    // 🤖 Add human-like delay before decision (5–15 seconds)
     const delayMs = 5000 + Math.floor(Math.random() * 10000);
     console.log(`⏳ Waiting ${delayMs / 1000}s before making a decision...`);
     await new Promise((resolve) => setTimeout(resolve, delayMs));
 
-    // 📌 Random BUY or SELL
+    // 📌 Randomly choose BUY or SELL decision
     const decision = Math.random() > 0.5 ? "BUY" : "SELL";
 
     console.log(`📊 Signal -> Asset: ${selectedAsset}, Decision: ${decision}`);
