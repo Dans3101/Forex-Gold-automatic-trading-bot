@@ -94,11 +94,22 @@ async function runScraper() {
   }
 
   console.log("🔍 Running PocketOption signal scraper...");
-  const signals = await getPocketSignals({ onlyStrong: true, limit: 5 });
+
+  // Get ALL signals (both strong + normal)
+  const signals = await getPocketSignals({ onlyStrong: false, limit: 10 });
 
   if (signals.length > 0 && telegramChatId) {
     for (const s of signals) {
-      const msg = `🤖 *Live Chat Signal*\n📊 Asset: ${s.asset}\n📌 Action: ${s.decision}\n💪 Strength: ${s.strength}\n📝 Raw: ${s.raw}`;
+      const type = s.strength?.toLowerCase().includes("strong")
+        ? "💪 Strong"
+        : "🟢 Normal";
+
+      const actionEmoji =
+        s.decision?.toLowerCase() === "buy" ? "🟩 BUY" :
+        s.decision?.toLowerCase() === "sell" ? "🟥 SELL" :
+        s.decision || "—";
+
+      const msg = `🤖 *Live Chat Signal*\n📊 Asset: ${s.asset}\n📌 Action: ${actionEmoji}\n🏷️ Type: ${type}\n📝 Raw: ${s.raw}`;
       await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
     }
   } else {
