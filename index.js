@@ -1,40 +1,50 @@
 // index.js
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
-import dotenv from "dotenv";
 import { startBot } from "./botManager.js";
 import { telegramToken, telegramChatId, signalIntervalMinutes } from "./config.js";
 import { getPocketData } from "./pocketscraper.js";
-
-dotenv.config();
+import fs from "fs";
+import path from "path";
 
 const app = express();
 app.use(express.json());
 
-// --- Validate config ---
+// --- Initialize Telegram Bot ---
 if (!telegramToken) {
-  console.error("❌ TELEGRAM_TOKEN missing. Please set TELEGRAM_TOKEN in environment.");
+  console.error("❌ TELEGRAM_TOKEN missing");
   process.exit(1);
 }
 
-// Create bot (webhook mode)
 const bot = new TelegramBot(telegramToken, {
   polling: false,
   webHook: true,
 });
 
-// --- Telegram webhook route (Telegram will POST updates here) ---
-app.post(`/bot${telegramToken}`, async (req, res) => {
-  try {
-    await bot.processUpdate(req.body);
-    res.sendStatus(200);
-  } catch (err) {
-    console.error("❌ Error processing Telegram update:", err);
-    res.sendStatus(500);
-  }
+// --- Configure webhook for Telegram ---
+const RENDER_URL =
+  process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
+
+if (RENDER_URL) {
+  const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
+  console.log("⚙️ Setting Telegram webhook:", webhookUrl);
+
+  bot
+    .setWebHook(webhookUrl)
+    .then(() => console.log("✅ Webhook set successfully"))
+    .catch((err) => console.error("❌ Failed to set webhook:", err.message));
+}
+
+// --- Pass bot to your manager ---
+const botState = startBot(bot);
+
+// --- Route: Telegram Webhook ---
+app.post(`/bot${telegramToken}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
-// --- TradingView / external webhook for direct signals ---
+// --- Route: TradingView Webhook (for live signals) ---
 app.post("/webhook", async (req, res) => {
   try {
     const payload = req.body || {};
@@ -48,109 +58,79 @@ app.post("/webhook", async (req, res) => {
     ).toUpperCase();
     const comment = payload.comment || payload.note || "";
 
-    const msg = `📡 *Signal Received*\n📊 Asset: ${asset}\n📌 Action: ${action || "—"}${comment ? `\n💬 ${comment}` : ""}`;
+    const msg = `📡 *Signal Received*\n📊 Asset: ${asset}\n📌 Action: ${
+      action || "—"
+    }${comment ? `\n💬 ${comment}` : ""}`;
 
     if (telegramChatId) {
       await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
-      console.log("✅ Forwarded webhook signal to chat:", telegramChatId);
     } else {
-      console.warn("⚠️ TELEGRAM_CHAT_ID missing — incoming webhook received but no chat to send to.");
+      console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send signal");
     }
 
-    res.json({ ok: true, sentTo: telegramChatId || null });
+    res.json({ ok: true, sent: telegramChatId });
   } catch (err) {
-    console.error("❌ /webhook handler error:", err);
+    console.error("❌ Webhook error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
+// --- Debug Screenshots Route ---
+app.get("/debug-screens", (req, res) => {
+  const dir = process.cwd();
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => f.startsWith("debug-") && f.endsWith(".png"));
+
+  if (!files.length) {
+    return res.send("⚠️ No debug screenshots found yet.");
+  }
+
+  const list = files
+    .map(
+      (f) =>
+        `<div><p>${f}</p><img src="/screens/${f}" style="max-width:600px;border:1px solid #ccc;margin:10px"/></div>`
+    )
+    .join("<hr/>");
+
+  res.send(`<h1>📸 Debug Screenshots</h1>${list}`);
+});
+
+// --- Serve static screenshot files ---
+app.use("/screens", express.static(process.cwd()));
+
 // --- Home route ---
 app.get("/", (req, res) => {
-  res.send("✅ Bot is live — Telegram webhook + TradingView webhook ready 🚀");
+  res.send("✅ Bot is live — Telegram + TradingView + PocketScraper ready 🚀");
 });
 
-// --- Start bot manager BEFORE starting the scraper loop ---
-// startBot should attach message handlers and return an object with isBotOn()
-const botState = startBot(bot) || { isBotOn: () => false };
-
-// --- Start server and then set Telegram webhook (ensures route exists when Telegram calls it) ---
+// --- Start server ---
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, async () => {
-  console.log(`🚀 Server listening on port ${PORT}`);
-
-  // Determine public URL for Render
-  const RENDER_URL = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
-  if (RENDER_URL) {
-    const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
-    console.log("⚙️ Setting Telegram webhook to:", webhookUrl);
-
-    try {
-      await bot.setWebHook(webhookUrl);
-      console.log("✅ Telegram webhook set successfully");
-    } catch (err) {
-      console.error("❌ Failed to set Telegram webhook:", err && err.message ? err.message : err);
-    }
-  } else {
-    console.warn("⚠️ No RENDER_EXTERNAL_URL/INTERNAL_URL detected — webhook may not be reachable.");
-  }
-});
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 // =======================
 // 🔄 Auto Scraper Loop
 // =======================
-async function runScraperOnce() {
-  try {
-    if (!botState.isBotOn()) {
-      console.log("⏸️ Bot is OFF (.on to enable) → skipping scrape.");
-      return;
-    }
+async function runScraper() {
+  if (!botState.isBotOn()) {
+    console.log("⏸️ Bot is OFF (.on to enable) → skipping scrape.");
+    return;
+  }
 
-    console.log("🔍 Running Pocket Option scraper...");
-    const signals = await getPocketData();
+  console.log("🔍 Running PocketOption scraper...");
+  const signals = await getPocketData();
 
-    if (signals?.length > 0) {
-      if (!telegramChatId) {
-        console.warn("⚠️ TELEGRAM_CHAT_ID not set — scraped signals won't be sent.");
-      } else {
-        for (const s of signals) {
-          try {
-            const msg = `🤖 *Scraped Signal*\n📊 Asset: ${s.asset}\n📌 Action: ${s.decision}`;
-            await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
-            console.log("➡️ Sent scraped signal to chat:", telegramChatId, s.asset, s.decision);
-          } catch (err) {
-            console.error("❌ Failed to send scraped signal:", err);
-          }
-        }
-      }
-    } else {
-      console.log("⚠️ No signals found this cycle.");
+  if (signals.length > 0 && telegramChatId) {
+    for (const s of signals) {
+      const msg = `🤖 *Scraped Signal*\n📊 Asset: ${s.asset}\n📌 Action: ${s.decision}`;
+      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
     }
-  } catch (err) {
-    console.error("❌ Error in scraper run:", err);
+  } else {
+    console.log("⚠️ No signals found or TELEGRAM_CHAT_ID missing.");
   }
 }
 
-// Schedule scraper to run every interval — it internally checks botState.isBotOn()
-const intervalMs = Math.max(1, Number(signalIntervalMinutes || 5)) * 60 * 1000;
-console.log(`⏱️ Scraper scheduled every ${intervalMs / 60000} minute(s).`);
-setInterval(() => {
-  // run in background, don't await (we handle errors inside)
-  runScraperOnce();
-}, intervalMs);
-
-// Optionally run it once at startup (only if bot is already ON)
-setTimeout(() => {
-  if (botState.isBotOn && botState.isBotOn()) {
-    runScraperOnce();
-  }
-}, 5000);
-
-// --- graceful shutdown ---
-process.on("SIGINT", () => {
-  console.log("SIGINT received — shutting down");
-  server.close(() => process.exit(0));
-});
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received — shutting down");
-  server.close(() => process.exit(0));
-});
+// Schedule scraper
+const intervalMs = signalIntervalMinutes * 60 * 1000;
+console.log(`⏱️ Scraper scheduled every ${signalIntervalMinutes} minutes.`);
+setInterval(runScraper, intervalMs);
