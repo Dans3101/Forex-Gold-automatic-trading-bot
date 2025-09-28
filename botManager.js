@@ -7,7 +7,7 @@ console.log("👥 Target Chat ID from config:", telegramChatId || "❌ Not set")
 
 let isBotOn = false;
 const knownChats = new Set();
-let scraperInterval = null; // ⏱️ store scraping timer
+let scraperInterval = null; // ⏱️ Timer reference
 
 // ✅ Start Telegram bot
 export function startBot(bot) {
@@ -50,24 +50,39 @@ export function startBot(bot) {
     if (text === ".on") {
       if (!isBotOn) {
         isBotOn = true;
-        await bot.sendMessage(chatId, "✅ Signal forwarding *enabled*! Waiting for TradingView alerts & Pocket Option signals...");
+        await bot.sendMessage(
+          chatId,
+          "✅ Signal forwarding *enabled*! Waiting for Pocket Option signals..."
+        );
 
         // Start Pocket Option scraper ⏱️
         scraperInterval = setInterval(async () => {
           try {
             const signals = await getPocketSignals();
-            if (signals.length > 0) {
-              for (const sig of signals) {
+
+            // ✅ Only forward "STRONG" signals
+            const strongSignals = signals.filter(
+              (s) => s.strength && s.strength.toLowerCase().includes("strong")
+            );
+
+            if (strongSignals.length > 0) {
+              for (const sig of strongSignals) {
                 await bot.sendMessage(
                   telegramChatId,
-                  `📊 Pocket Signal: *${sig.asset}* → ${sig.decision}`,
+                  `📊 *Strong Signal Detected!*\n\n` +
+                  `💹 Asset: *${sig.asset}*\n` +
+                  `📈 Decision: *${sig.decision}*\n` +
+                  `🔥 Strength: ${sig.strength}`,
                   { parse_mode: "Markdown" }
                 );
               }
             }
           } catch (err) {
             console.error("❌ Scraper error:", err.message);
-            await bot.sendMessage(telegramChatId, "⚠️ Error fetching Pocket Option signals.");
+            await bot.sendMessage(
+              telegramChatId,
+              "⚠️ Error fetching Pocket Option signals."
+            );
           }
         }, signalIntervalMinutes * 60 * 1000);
       }
@@ -85,11 +100,14 @@ export function startBot(bot) {
       }
 
     } else {
-      await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
+      await bot.sendMessage(
+        chatId,
+        `🤖 I received your message: "${msg.text}"`
+      );
     }
   });
 
-  // Expose control state so index.js can check
+  // Expose control state
   return {
     isBotOn: () => isBotOn,
   };
