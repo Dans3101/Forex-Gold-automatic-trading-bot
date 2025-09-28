@@ -3,11 +3,11 @@ import { telegramChatId, signalIntervalMinutes } from "./config.js";
 import { getPocketSignals } from "./pocketscraper.js";
 
 console.log("🚀 Telegram Bot Manager loaded...");
-console.log("👥 Target Chat ID from config:", telegramChatId || "❌ Not set");
+console.log("👥 Configured Chat ID:", telegramChatId || "❌ Not set");
 
 let isBotOn = false;
 const knownChats = new Set();
-let scraperInterval = null; // ⏱️ Timer reference
+let scraperInterval = null; // ⏱️ scraper timer
 
 // ✅ Start Telegram bot
 export function startBot(bot) {
@@ -22,12 +22,12 @@ export function startBot(bot) {
 
     console.log(`💬 Message from chat ID: ${chatId}, text: ${text}`);
 
-    // ✅ Auto-send chat ID once per chat
+    // ✅ Send chat ID once for new chats
     if (!knownChats.has(chatId)) {
       knownChats.add(chatId);
       await bot.sendMessage(
         chatId,
-        `👋 Hello! Your Chat ID is: \`${chatId}\`\n\nSave this ID in your .env as *TELEGRAM_CHAT_ID* if you want me to send signals here.`,
+        `👋 Hello! Your Chat ID is: \`${chatId}\`\n\nSave this ID in your .env as *TELEGRAM_CHAT_ID* to receive signals here.`,
         { parse_mode: "Markdown" }
       );
     }
@@ -52,39 +52,37 @@ export function startBot(bot) {
         isBotOn = true;
         await bot.sendMessage(
           chatId,
-          "✅ Signal forwarding *enabled*! Waiting for Pocket Option signals..."
+          `✅ Signal forwarding *enabled*!\n\n⏳ I will fetch Pocket Option signals every *${signalIntervalMinutes} minutes* and send only *Strong Signals*.`,
+          { parse_mode: "Markdown" }
         );
 
         // Start Pocket Option scraper ⏱️
         scraperInterval = setInterval(async () => {
           try {
-            const signals = await getPocketSignals();
+            console.log("🔍 Fetching Pocket Option signals...");
+            const signals = await getPocketSignals({ onlyStrong: true, limit: 5 });
 
-            // ✅ Only forward "STRONG" signals
-            const strongSignals = signals.filter(
-              (s) => s.strength && s.strength.toLowerCase().includes("strong")
-            );
-
-            if (strongSignals.length > 0) {
-              for (const sig of strongSignals) {
+            if (signals.length > 0) {
+              for (const sig of signals) {
                 await bot.sendMessage(
                   telegramChatId,
-                  `📊 *Strong Signal Detected!*\n\n` +
-                  `💹 Asset: *${sig.asset}*\n` +
-                  `📈 Decision: *${sig.decision}*\n` +
-                  `🔥 Strength: ${sig.strength}`,
+                  `📊 *Strong Signal*\n\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*`,
                   { parse_mode: "Markdown" }
                 );
               }
+            } else {
+              console.log("ℹ️ No strong signals detected this cycle.");
             }
           } catch (err) {
             console.error("❌ Scraper error:", err.message);
             await bot.sendMessage(
               telegramChatId,
-              "⚠️ Error fetching Pocket Option signals."
+              "⚠️ Error fetching Pocket Option signals. Check logs."
             );
           }
         }, signalIntervalMinutes * 60 * 1000);
+      } else {
+        await bot.sendMessage(chatId, "⚠️ Bot is already ON.");
       }
 
     } else if (text === ".off") {
@@ -92,22 +90,19 @@ export function startBot(bot) {
         isBotOn = false;
         await bot.sendMessage(chatId, "⛔ Signal forwarding *disabled*.");
 
-        // Stop scraper
         if (scraperInterval) {
           clearInterval(scraperInterval);
           scraperInterval = null;
         }
+      } else {
+        await bot.sendMessage(chatId, "⚠️ Bot is already OFF.");
       }
 
     } else {
-      await bot.sendMessage(
-        chatId,
-        `🤖 I received your message: "${msg.text}"`
-      );
+      await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
     }
   });
 
-  // Expose control state
   return {
     isBotOn: () => isBotOn,
   };
