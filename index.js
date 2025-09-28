@@ -1,47 +1,70 @@
 // index.js
-import "dotenv/config";
-import { getPocketData, getPocketSignals } from "./pocketscraper.js";
-import { sendTelegramMessage } from "./botManager.js";
+import express from "express";
+import TelegramBot from "node-telegram-bot-api";
+import { startBot } from "./botManager.js";
+import { telegramToken, telegramChatId } from "./config.js";
 
-// How often to scrape (ms)
-const INTERVAL = 60 * 1000; // every 1 minute
+const app = express();
+app.use(express.json());
 
-async function runScraper() {
-  console.log("⏳ Running scraper cycle...");
-
-  try {
-    // 1. Get random PocketOption data (dummy)
-    const data = await getPocketData();
-    if (data.length) {
-      for (const d of data) {
-        const msg = `📊 Market Data → ${d.asset}: ${d.decision}`;
-        console.log("➡️", msg);
-        await sendTelegramMessage(msg);
-      }
-    } else {
-      console.log("⚠️ No market data found this round.");
-    }
-
-    // 2. Get live chat signals
-    const signals = await getPocketSignals({ onlyStrong: false, limit: 5 });
-    if (signals.length) {
-      for (const s of signals) {
-        const msg = `📢 Signal (${s.strength}) → ${s.asset} : ${s.decision}\nRaw: ${s.raw}`;
-        console.log("➡️", msg);
-        await sendTelegramMessage(msg);
-      }
-    } else {
-      console.log("⚠️ No signals extracted this round.");
-    }
-  } catch (err) {
-    console.error("❌ Scraper cycle failed:", err.message);
-  }
-
-  console.log("✅ Cycle complete.\n");
+// --- Initialize Telegram Bot ---
+if (!telegramToken) {
+  console.error("❌ TELEGRAM_TOKEN missing");
+  process.exit(1);
 }
 
-// Run immediately once
-runScraper();
+const bot = new TelegramBot(telegramToken, {
+  polling: false,
+  webHook: true,
+});
 
-// Repeat every INTERVAL
-setInterval(runScraper, INTERVAL);
+// --- Configure webhook for Telegram ---
+const RENDER_URL =
+  process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
+
+if (RENDER_URL) {
+  const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
+  console.log("⚙️ Setting Telegram webhook:", webhookUrl);
+
+  bot
+    .setWebHook(webhookUrl)
+    .then(() => console.log("✅ Webhook set successfully"))
+    .catch((err) => console.error("❌ Failed to set webhook:", err.message));
+} else {
+  console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
+}
+
+// --- Pass bot to botManager (handles .on/.off and scraping) ---
+startBot(bot);
+
+// --- Route: Telegram Webhook ---
+app.post(`/bot${telegramToken}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// --- Home route ---
+app.get("/", (req, res) => {
+  res.send("✅ Bot is live — Telegram + PocketOption Scraper ready 🚀");
+});
+
+// --- Start server ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, async () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+
+  // ✅ Send startup message
+  if (telegramChatId) {
+    try {
+      await bot.sendMessage(
+        telegramChatId,
+        "🚀 Bot is online and ready!\n\nUse `.on` to start signal scraping.\nUse `.off` to stop."
+      );
+      console.log("📩 Startup message sent to Telegram.");
+    } catch (err) {
+      console.error("❌ Failed to send startup message:", err.message);
+    }
+  } else {
+    console.warn("⚠️ TELEGRAM_CHAT_ID not set, startup message skipped.");
+  }
+});
