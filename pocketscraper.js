@@ -7,9 +7,11 @@ const PASSWORD = process.env.POCKET_PASSWORD;
 /* ---------- Helpers ---------- */
 async function launchBrowser() {
   try {
+    const executablePath = await puppeteer.executablePath(); // ✅ must await
+
     const browser = await puppeteer.launch({
       headless: true,
-      executablePath: puppeteer.executablePath(), // ✅ Force bundled Chromium
+      executablePath, // ✅ bundled Chromium
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
