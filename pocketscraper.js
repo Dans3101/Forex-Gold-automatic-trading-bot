@@ -29,7 +29,17 @@ async function launchBrowser() {
   };
   if (execPath) launchOptions.executablePath = execPath;
 
-  return puppeteer.launch(launchOptions);
+  console.log("🌐 Launching Puppeteer...");
+  if (execPath) console.log("🔍 Using Chrome path:", execPath);
+
+  try {
+    const browser = await puppeteer.launch(launchOptions);
+    console.log("✅ Puppeteer browser launched successfully");
+    return browser;
+  } catch (err) {
+    console.error("❌ Puppeteer failed to launch:", err.message);
+    throw err; // rethrow so main function logs it too
+  }
 }
 
 /* Save screenshot for debugging */
@@ -44,30 +54,30 @@ async function saveShot(page, label = "debug") {
   }
 }
 
-/* Parse chat text for UP/DOWN signals (arrows + words) */
+/* Parse chat text for UP/DOWN signals */
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
 
-  console.log("📝 RAW chat text (first 500 chars):", text.slice(0, 500));
+  console.log("📝 RAW chat text (first 300 chars):", text.slice(0, 300));
 
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .slice(-300); // keep last ~300 lines
+    .slice(-300); // last ~300 lines
 
   const signals = [];
   for (let i = lines.length - 1; i >= 0 && signals.length < limit; i--) {
     const line = lines[i];
 
     let decision = null;
-    if (/↑|⬆️|up|call|buy/i.test(line)) decision = "UP";
-    else if (/↓|⬇️|down|put|sell/i.test(line)) decision = "DOWN";
+    if (/up|call|buy|⬆️/i.test(line)) decision = "⬆️ UP";
+    if (/down|put|sell|⬇️/i.test(line)) decision = "⬇️ DOWN";
 
     if (decision) {
       const strength = /strong/i.test(line) ? "Strong" : "Normal";
       signals.push({
-        asset: "UNKNOWN", // placeholder (chat usually doesn’t mention asset)
+        asset: "UNKNOWN", // simplify first
         decision,
         strength,
         raw: line,
@@ -90,7 +100,7 @@ export async function getPocketSignals(limit = 5) {
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
-    // Login
+    console.log("🔑 Logging into Pocket Option...");
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
     await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
     await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
@@ -98,12 +108,14 @@ export async function getPocketSignals(limit = 5) {
       page.click('button[type="submit"]'),
       page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
     ]);
+    console.log("✅ Login successful");
 
     // Screenshot for debugging
     await saveShot(page, "debug-chat");
 
     // Extract all visible text
-    const text = await page.evaluate(() => document.body.innerText || "");
+    console.log("📥 Extracting page text...");
+    let text = await page.evaluate(() => document.body.innerText || "");
     const parsed = parseTextForSignals(text, limit);
 
     console.log(`✅ Extracted ${parsed.length} signals`);
@@ -112,6 +124,9 @@ export async function getPocketSignals(limit = 5) {
     console.error("❌ getPocketSignals error:", err.message);
     return [];
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    if (browser) {
+      await browser.close().catch(() => {});
+      console.log("👋 Puppeteer browser closed");
+    }
   }
 }
