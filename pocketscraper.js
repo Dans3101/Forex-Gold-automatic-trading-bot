@@ -1,54 +1,37 @@
 // pocketscraper.js
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "chrome-aws-lambda";
 
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
-/* ---------- Launch Browser ---------- */
+/* ---------- Helpers ---------- */
 async function launchBrowser() {
   try {
+    const executablePath =
+      (await chromium.executablePath) ||
+      "/usr/bin/google-chrome"; // fallback for local testing
+
     const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-gpu",
-      ],
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath,
+      headless: chromium.headless,
     });
-    console.log("✅ Browser launched");
+
+    console.log("✅ Puppeteer launched with chrome-aws-lambda");
     return browser;
   } catch (err) {
-    console.error("❌ Browser launch failed:", err.message);
+    console.error("❌ Puppeteer failed to launch:", err.message);
     throw err;
   }
 }
 
-/* ---------- Login Flow ---------- */
-async function loginPocketOption(page) {
-  console.log("🔑 Navigating to Pocket Option...");
-  await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
-
-  console.log("🔐 Entering credentials...");
-  await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
-  await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-
-  await Promise.all([
-    page.click('button[type="submit"]'),
-    page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
-  ]);
-
-  console.log("✅ Logged in successfully");
-}
-
-/* ---------- Parse signals from text ---------- */
+/* ---------- Parse chat text for UP/DOWN signals ---------- */
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
 
-  console.log("📝 Text preview:", text.slice(0, 200).replace(/\s+/g, " "));
+  console.log("📝 RAW chat text preview:", text.slice(0, 300).replace(/\s+/g, " "));
 
   const lines = text
     .split(/\r?\n/)
@@ -59,8 +42,8 @@ function parseTextForSignals(text, limit = 10) {
   const signals = [];
   for (let i = lines.length - 1; i >= 0 && signals.length < limit; i--) {
     const line = lines[i];
-    let decision = null;
 
+    let decision = null;
     if (/up|call|buy|⬆️/i.test(line)) decision = "⬆️ UP";
     if (/down|put|sell|⬇️/i.test(line)) decision = "⬇️ DOWN";
 
@@ -69,15 +52,13 @@ function parseTextForSignals(text, limit = 10) {
       signals.push({ asset: "UNKNOWN", decision, strength, raw: line });
     }
   }
-
-  console.log(`✅ Extracted ${signals.length} signals`);
   return signals;
 }
 
-/* ---------- Extract Trading Signals ---------- */
+/* ---------- Public Functions ---------- */
 export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL or POCKET_PASSWORD in .env");
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping.");
     return [];
   }
 
@@ -87,11 +68,23 @@ export async function getPocketSignals(limit = 5) {
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
-    await loginPocketOption(page);
+    console.log("🔑 Navigating to Pocket Option login...");
+    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
 
-    console.log("📥 Scraping page text for signals...");
+    console.log("🔐 Logging in...");
+    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
+    ]);
+
+    console.log("📥 Extracting signals from page text...");
     const text = await page.evaluate(() => document.body?.innerText || "");
-    return parseTextForSignals(text, limit);
+    const parsed = parseTextForSignals(text, limit);
+
+    console.log(`✅ Parsed ${parsed.length} signals.`);
+    return parsed;
   } catch (err) {
     console.error("❌ getPocketSignals error:", err.message);
     return [];
@@ -100,10 +93,9 @@ export async function getPocketSignals(limit = 5) {
   }
 }
 
-/* ---------- Extract Market Data (Assets + Decision) ---------- */
 export async function getPocketData() {
   if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL or POCKET_PASSWORD in .env");
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping.");
     return [];
   }
 
@@ -113,23 +105,29 @@ export async function getPocketData() {
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
-    await loginPocketOption(page);
+    console.log("🔑 Navigating for market data...");
+    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
 
-    console.log("📊 Collecting market data...");
-    const text = await page.evaluate(() => document.body?.innerText || "");
+    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
+    ]);
 
+    const pageText = await page.evaluate(() => document.body?.innerText || "");
     const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
-    const assets = [...text.matchAll(assetRE)].map((m) => m[1]).slice(0, 50);
+    const assets = [...pageText.matchAll(assetRE)].map((m) => m[1]).slice(0, 50);
 
     if (!assets.length) {
-      console.warn("⚠️ No assets found");
+      console.warn("⚠️ No assets found on page.");
       return [];
     }
 
     const asset = assets[Math.floor(Math.random() * assets.length)];
     const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
 
-    console.log("📊 Sample Market Data:", { asset, decision });
+    console.log("📊 Picked sample:", { asset, decision });
     return [{ asset, decision }];
   } catch (err) {
     console.error("❌ getPocketData error:", err.message);
