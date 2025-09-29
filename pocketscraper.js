@@ -1,12 +1,17 @@
 // pocketscraper.js
 import puppeteer from "puppeteer";
-import fs from "fs";
 
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
+let browser = null;
+let page = null;
+
 /* ---------- Helpers ---------- */
-async function launchBrowser() {
+async function initBrowser() {
+  if (browser && page) return { browser, page };
+
+  console.log("🌐 Launching Puppeteer (persistent session)...");
   const execPath =
     process.env.PUPPETEER_EXECUTABLE_PATH ||
     process.env.CHROME_PATH ||
@@ -29,36 +34,48 @@ async function launchBrowser() {
   };
   if (execPath) launchOptions.executablePath = execPath;
 
-  console.log("🌐 Launching Puppeteer...");
-  if (execPath) console.log("🔍 Using Chrome path:", execPath);
+  browser = await puppeteer.launch(launchOptions);
+  page = await browser.newPage();
+  page.setDefaultTimeout(25000);
 
-  try {
-    const browser = await puppeteer.launch(launchOptions);
-    console.log("✅ Puppeteer browser launched successfully");
-    return browser;
-  } catch (err) {
-    console.error("❌ Puppeteer failed to launch:", err.message);
-    throw err;
-  }
+  console.log("🔑 Logging into Pocket Option...");
+  await page.goto("https://pocketoption.com/en/login/", {
+    waitUntil: "networkidle2",
+  });
+
+  await page.type('input[name="email"], input[type="email"]', EMAIL, {
+    delay: 50,
+  });
+  await page.type('input[name="password"], input[type="password"]', PASSWORD, {
+    delay: 50,
+  });
+
+  await Promise.all([
+    page.click('button[type="submit"]'),
+    page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
+  ]);
+
+  console.log("✅ Login successful and session ready");
+  return { browser, page };
 }
 
-/* Save screenshot for debugging */
-async function saveShot(page, label = "debug") {
+async function saveShot(label = "debug") {
   const ts = Date.now();
   const fname = `${label}-${ts}.png`;
   try {
-    await page.screenshot({ path: fname, fullPage: true });
-    console.log(`📸 Saved screenshot: ${fname}`);
+    if (page) {
+      await page.screenshot({ path: fname, fullPage: true });
+      console.log(`📸 Screenshot saved: ${fname}`);
+    }
   } catch (err) {
-    console.warn("⚠️ Could not save screenshot:", err.message);
+    console.warn("⚠️ Screenshot failed:", err.message);
   }
 }
 
-/* Parse chat text for UP/DOWN signals */
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
 
-  console.log("📝 RAW chat text (first 300 chars):", text.slice(0, 300));
+  console.log("📝 First 200 chars of text:", text.slice(0, 200));
 
   const lines = text
     .split(/\r?\n/)
@@ -75,7 +92,7 @@ function parseTextForSignals(text, limit = 10) {
     if (/down|put|sell|⬇️/i.test(line)) decision = "⬇️ DOWN";
 
     if (decision) {
-      const strength = /strong/i.test(line) ? "Strong" : "Normal";
+      const strength = /strong|🔥|alert/i.test(line) ? "Strong" : "Normal";
       signals.push({
         asset: "UNKNOWN",
         decision,
@@ -84,90 +101,53 @@ function parseTextForSignals(text, limit = 10) {
       });
     }
   }
+
+  console.log(`📢 Parsed ${signals.length} signals`);
   return signals;
 }
 
 /* ---------- Public Functions ---------- */
 
-// Return parsed UP/DOWN signals
+// Scrape live chat signals without re-login
 export async function getPocketSignals(limit = 5) {
-  if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD");
-    return [];
-  }
-
-  let browser;
   try {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-    page.setDefaultTimeout(25000);
+    await initBrowser();
 
-    console.log("🔑 Logging into Pocket Option...");
-    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
-    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
-    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-    await Promise.all([
-      page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
-    ]);
-    console.log("✅ Login successful");
-
-    // Screenshot for debugging
-    await saveShot(page, "debug-chat");
-
-    console.log("📥 Extracting page text...");
-    let text = await page.evaluate(() => document.body.innerText || "");
+    console.log("📥 Extracting signals...");
+    const text = await page.evaluate(() => document.body.innerText || "");
     const parsed = parseTextForSignals(text, limit);
 
-    console.log(`✅ Extracted ${parsed.length} signals`);
     return parsed;
   } catch (err) {
     console.error("❌ getPocketSignals error:", err.message);
     return [];
-  } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
-      console.log("👋 Puppeteer browser closed");
-    }
   }
 }
 
-// Return raw text (for debugging / testing)
+// Scrape raw text without re-login
 export async function getPocketData() {
-  if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD");
-    return "";
-  }
-
-  let browser;
   try {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-    page.setDefaultTimeout(25000);
+    await initBrowser();
 
-    console.log("🔑 Logging into Pocket Option...");
-    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
-    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
-    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-    await Promise.all([
-      page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
-    ]);
-    console.log("✅ Login successful");
+    console.log("📥 Extracting raw text...");
+    const text = await page.evaluate(() => document.body.innerText || "");
+    console.log("📝 Raw text length:", text.length);
 
-    await saveShot(page, "debug-raw");
-
-    console.log("📥 Extracting raw page text...");
-    let text = await page.evaluate(() => document.body.innerText || "");
-    console.log("📝 Extracted raw text length:", text.length);
     return text;
   } catch (err) {
     console.error("❌ getPocketData error:", err.message);
     return "";
-  } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
-      console.log("👋 Puppeteer browser closed");
-    }
+  }
+}
+
+/* Graceful shutdown */
+export async function closeBrowser() {
+  if (browser) {
+    try {
+      await browser.close();
+      console.log("👋 Browser closed manually");
+    } catch {}
+    browser = null;
+    page = null;
   }
 }
