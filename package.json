@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "postinstall": "puppeteer install --with-deps"   // ✅ Force Chromium download
   },
   "engines": {
     "node": "22.x"
