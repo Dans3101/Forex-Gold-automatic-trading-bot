@@ -7,7 +7,9 @@ services:
     repo: https://github.com/Dans3101/Pocket-option-trading-bot
     branch: main
     rootDir: .
-    buildCommand: npm install
+    buildCommand: |
+      npm install
+      npx puppeteer browsers install chrome
     startCommand: node index.js
     autoDeploy: true
     envVars:
@@ -15,6 +17,8 @@ services:
         value: production
       - key: PUPPETEER_SKIP_DOWNLOAD
         value: "false"
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/.cache/puppeteer
 
   # Worker service to run the WhatsApp trading bot
   - type: worker
@@ -24,7 +28,9 @@ services:
     repo: https://github.com/Dans3101/Pocket-option-trading-bot
     branch: main
     rootDir: .
-    buildCommand: npm install
+    buildCommand: |
+      npm install
+      npx puppeteer browsers install chrome
     startCommand: node index.js
     autoDeploy: true
     envVars:
@@ -32,6 +38,8 @@ services:
         value: production
       - key: PUPPETEER_SKIP_DOWNLOAD
         value: "false"
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/.cache/puppeteer
       - key: GROUP_ID
         sync: false
       - key: POCKET_EMAIL
