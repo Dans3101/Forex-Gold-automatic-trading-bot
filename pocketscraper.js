@@ -38,7 +38,7 @@ async function launchBrowser() {
     return browser;
   } catch (err) {
     console.error("❌ Puppeteer failed to launch:", err.message);
-    throw err; // rethrow so main function logs it too
+    throw err;
   }
 }
 
@@ -64,7 +64,7 @@ function parseTextForSignals(text, limit = 10) {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .slice(-300); // last ~300 lines
+    .slice(-300);
 
   const signals = [];
   for (let i = lines.length - 1; i >= 0 && signals.length < limit; i--) {
@@ -77,7 +77,7 @@ function parseTextForSignals(text, limit = 10) {
     if (decision) {
       const strength = /strong/i.test(line) ? "Strong" : "Normal";
       signals.push({
-        asset: "UNKNOWN", // simplify first
+        asset: "UNKNOWN",
         decision,
         strength,
         raw: line,
@@ -87,7 +87,9 @@ function parseTextForSignals(text, limit = 10) {
   return signals;
 }
 
-/* ---------- Main Function ---------- */
+/* ---------- Public Functions ---------- */
+
+// Return parsed UP/DOWN signals
 export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) {
     console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD");
@@ -113,7 +115,6 @@ export async function getPocketSignals(limit = 5) {
     // Screenshot for debugging
     await saveShot(page, "debug-chat");
 
-    // Extract all visible text
     console.log("📥 Extracting page text...");
     let text = await page.evaluate(() => document.body.innerText || "");
     const parsed = parseTextForSignals(text, limit);
@@ -123,6 +124,46 @@ export async function getPocketSignals(limit = 5) {
   } catch (err) {
     console.error("❌ getPocketSignals error:", err.message);
     return [];
+  } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+      console.log("👋 Puppeteer browser closed");
+    }
+  }
+}
+
+// Return raw text (for debugging / testing)
+export async function getPocketData() {
+  if (!EMAIL || !PASSWORD) {
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD");
+    return "";
+  }
+
+  let browser;
+  try {
+    browser = await launchBrowser();
+    const page = await browser.newPage();
+    page.setDefaultTimeout(25000);
+
+    console.log("🔑 Logging into Pocket Option...");
+    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
+    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
+    ]);
+    console.log("✅ Login successful");
+
+    await saveShot(page, "debug-raw");
+
+    console.log("📥 Extracting raw page text...");
+    let text = await page.evaluate(() => document.body.innerText || "");
+    console.log("📝 Extracted raw text length:", text.length);
+    return text;
+  } catch (err) {
+    console.error("❌ getPocketData error:", err.message);
+    return "";
   } finally {
     if (browser) {
       await browser.close().catch(() => {});
