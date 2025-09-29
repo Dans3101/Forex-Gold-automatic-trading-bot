@@ -1,6 +1,5 @@
 // pocketscraper.js
-import puppeteer from "puppeteer-core";
-import chromium from "chrome-aws-lambda";
+import puppeteer from "puppeteer";
 
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
@@ -8,18 +7,12 @@ const PASSWORD = process.env.POCKET_PASSWORD;
 /* ---------- Helpers ---------- */
 async function launchBrowser() {
   try {
-    const executablePath =
-      (await chromium.executablePath) ||
-      "/usr/bin/google-chrome"; // fallback for local testing
-
     const browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath,
-      headless: chromium.headless,
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
-    console.log("✅ Puppeteer launched with chrome-aws-lambda");
+    console.log("✅ Puppeteer launched with bundled Chromium");
     return browser;
   } catch (err) {
     console.error("❌ Puppeteer failed to launch:", err.message);
