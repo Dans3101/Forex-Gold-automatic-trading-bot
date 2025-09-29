@@ -1,5 +1,5 @@
 services:
-  # Web service (keep-alive)
+  # Web service to keep the bot alive (keep-alive server)
   - type: web
     name: wa-signal-web
     env: node
@@ -7,14 +7,16 @@ services:
     repo: https://github.com/Dans3101/Pocket-option-trading-bot
     branch: main
     rootDir: .
-    buildCommand: "npm install && npx puppeteer browsers install chrome"
+    buildCommand: |
+      npm install
+      npx puppeteer-core --version || true
     startCommand: "node index.js"
     autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
 
-  # Worker service (WhatsApp bot)
+  # Worker service to run the WhatsApp trading bot
   - type: worker
     name: wa-signal-bot
     env: node
@@ -22,7 +24,9 @@ services:
     repo: https://github.com/Dans3101/Pocket-option-trading-bot
     branch: main
     rootDir: .
-    buildCommand: "npm install && npx puppeteer browsers install chrome"
+    buildCommand: |
+      npm install
+      npx puppeteer-core --version || true
     startCommand: "node index.js"
     autoDeploy: true
     envVars:
@@ -30,9 +34,9 @@ services:
         value: production
       - key: GROUP_ID
         sync: false
-      - key: EMAIL
+      - key: POCKET_EMAIL
         sync: false
-      - key: PASSWORD
+      - key: POCKET_PASSWORD
         sync: false
       - key: PHONE_NUMBER
         sync: false
