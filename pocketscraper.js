@@ -9,7 +9,14 @@ async function launchBrowser() {
   try {
     const browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: puppeteer.executablePath(), // ✅ Force bundled Chromium
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+      ],
     });
 
     console.log("✅ Puppeteer launched with bundled Chromium");
