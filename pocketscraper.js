@@ -8,13 +8,8 @@ const PASSWORD = process.env.POCKET_PASSWORD;
 
 /* ---------- Helpers ---------- */
 async function launchBrowserWithFallback() {
-  // allow user to force a specific chrome path
-  const execPath =
-    process.env.PUPPETEER_EXECUTABLE_PATH ||
-    process.env.CHROME_PATH ||
-    (typeof puppeteer.executablePath === "function"
-      ? puppeteer.executablePath()
-      : undefined);
+  // ❌ Ignore PUPPETEER_EXECUTABLE_PATH (Render sets it wrong)
+  const execPath = process.env.CHROME_PATH || null;
 
   const launchOptions = {
     headless: true,
@@ -32,48 +27,32 @@ async function launchBrowserWithFallback() {
 
   if (execPath) {
     launchOptions.executablePath = execPath;
-    console.log("🔍 Using provided Chrome executablePath:", execPath);
+    console.log("🔍 Using CHROME_PATH from env:", execPath);
   } else {
-    console.log("🔍 No explicit executablePath provided; relying on Puppeteer default/bundled Chromium.");
+    console.log("🔍 No CHROME_PATH set, using Puppeteer’s bundled Chromium.");
   }
 
-  // try launch
   try {
     const browser = await puppeteer.launch(launchOptions);
     console.log("✅ Puppeteer launched browser successfully");
     return browser;
   } catch (err) {
-    console.error("❌ Initial puppeteer.launch() failed:", err && err.message ? err.message : err);
+    console.error("❌ Puppeteer initial launch failed:", err.message);
 
-    // If execPath was provided, no point trying to download — rethrow and instruct user.
-    if (execPath) {
-      throw new Error(
-        `Could not launch Chrome at provided executablePath (${execPath}). Original error: ${err.message}`
-      );
-    }
-
-    // Attempt runtime download of Chromium using npx (fallback)
+    // Try runtime install of Chromium
     try {
-      console.log("🛠️ Attempting to download Chromium at runtime via `npx puppeteer install` (this may take a while)...");
-      // run with a longer timeout - synchronous so logs appear in deploy output
-      execSync("npx puppeteer install --unsafe-perm", {
-        stdio: "inherit",
-        timeout: 20 * 60 * 1000, // 20 minutes
-      });
-      console.log("✅ Chromium download attempt finished — retrying puppeteer.launch() ...");
-
-      // Retry launching Puppeteer after install
+      console.log("🛠️ Attempting runtime Chromium install...");
+      execSync("npx puppeteer install --unsafe-perm", { stdio: "inherit" });
+      console.log("✅ Chromium installed, retrying launch...");
       const browser = await puppeteer.launch(launchOptions);
-      console.log("✅ Puppeteer launched browser successfully after runtime install");
       return browser;
     } catch (err2) {
-      console.error("❌ Runtime Chromium install or second launch failed:", err2 && err2.message ? err2.message : err2);
+      console.error("❌ Runtime Chromium install failed:", err2.message);
       throw new Error(
-        "Unable to start Chromium. Two attempts failed (initial launch and runtime install). " +
-          "Options:\n" +
-          " - Set PUPPETEER_EXECUTABLE_PATH or CHROME_PATH to a Chrome/Chromium binary available in the container.\n" +
-          " - Deploy using a Docker image that has Chrome installed (see README/Docker example).\n" +
-          "Original error: " + (err2.message || err2)
+        "Unable to launch Chromium. Options:\n" +
+          " - Set CHROME_PATH to a working Chrome binary inside the container\n" +
+          " - Or use a custom Docker image with Chrome preinstalled.\n" +
+          "Original error: " + err2.message
       );
     }
   }
@@ -87,7 +66,7 @@ async function saveShot(page, label = "debug") {
     await page.screenshot({ path: fname, fullPage: true });
     console.log(`📸 Saved screenshot: ${fname}`);
   } catch (err) {
-    console.warn("⚠️ Could not save screenshot:", err && err.message ? err.message : err);
+    console.warn("⚠️ Could not save screenshot:", err.message);
   }
 }
 
@@ -95,7 +74,7 @@ async function saveShot(page, label = "debug") {
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
 
-  console.log("📝 RAW chat text preview:", text.slice(0, 500).replace(/\s+/g, " ").slice(0, 400));
+  console.log("📝 RAW chat text preview:", text.slice(0, 400).replace(/\s+/g, " "));
 
   const lines = text
     .split(/\r?\n/)
@@ -113,27 +92,16 @@ function parseTextForSignals(text, limit = 10) {
 
     if (decision) {
       const strength = /strong/i.test(line) ? "Strong" : "Normal";
-      signals.push({
-        asset: "UNKNOWN",
-        decision,
-        strength,
-        raw: line,
-      });
+      signals.push({ asset: "UNKNOWN", decision, strength, raw: line });
     }
   }
   return signals;
 }
 
 /* ---------- Public Functions ---------- */
-
-/**
- * getPocketSignals(limit)
- * Logs in to PocketOption, captures debug screenshots, extracts page text
- * and returns parsed UP/DOWN signals from visible text.
- */
 export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - getPocketSignals will not run.");
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - getPocketSignals skipped.");
     return [];
   }
 
@@ -143,69 +111,10 @@ export async function getPocketSignals(limit = 5) {
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
-    console.log("🔑 Navigating to Pocket Option login page...");
+    console.log("🔑 Navigating to Pocket Option login...");
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
 
-    console.log("🔐 Filling login form...");
-    try {
-      await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
-      await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-      await Promise.all([
-        page.click('button[type="submit"]'),
-        page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
-      ]);
-      console.log("✅ Login succeeded (navigation complete).");
-    } catch (loginErr) {
-      console.warn("⚠️ Login attempt failed using default selectors. Capturing screenshot and page text for debugging.");
-      await saveShot(page, "debug-login-failed");
-      const bodyText = await page.evaluate(() => document.body && (document.body.innerText || ""));
-      console.log("📝 Body text preview after failed login:", (bodyText || "").slice(0, 500).replace(/\s+/g," ").slice(0,400));
-      throw loginErr;
-    }
-
-    // take screenshot of the dashboard / chat area for debugging
-    await saveShot(page, "debug-dashboard");
-
-    console.log("📥 Extracting page text for signal parsing...");
-    const text = await page.evaluate(() => document.body && (document.body.innerText || ""));
-    const parsed = parseTextForSignals(text, limit);
-
-    console.log(`✅ Parsed ${parsed.length} signals from page text.`);
-    return parsed;
-  } catch (err) {
-    console.error("❌ getPocketSignals error:", err && (err.message || err));
-    return [];
-  } finally {
-    if (browser) {
-      try {
-        await browser.close();
-        console.log("👋 Puppeteer browser closed");
-      } catch (_) {}
-    }
-  }
-}
-
-/**
- * getPocketData()
- * Simpler: logs in and returns a small sample array of market-like decisions
- * (keeps same return shape your bot expects).
- */
-export async function getPocketData() {
-  if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - getPocketData will not run.");
-    return [];
-  }
-
-  let browser;
-  try {
-    browser = await launchBrowserWithFallback();
-    const page = await browser.newPage();
-    page.setDefaultTimeout(25000);
-
-    console.log("🔑 Navigating to Pocket Option login page for market data...");
-    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
-
-    // login (reuse same selectors)
+    console.log("🔐 Logging in...");
     await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
     await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
     await Promise.all([
@@ -213,37 +122,64 @@ export async function getPocketData() {
       page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
     ]);
 
-    // capture dashboard screenshot
+    await saveShot(page, "debug-dashboard");
+
+    console.log("📥 Extracting signals from page text...");
+    const text = await page.evaluate(() => document.body?.innerText || "");
+    const parsed = parseTextForSignals(text, limit);
+
+    console.log(`✅ Parsed ${parsed.length} signals.`);
+    return parsed;
+  } catch (err) {
+    console.error("❌ getPocketSignals error:", err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
+export async function getPocketData() {
+  if (!EMAIL || !PASSWORD) {
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - getPocketData skipped.");
+    return [];
+  }
+
+  let browser;
+  try {
+    browser = await launchBrowserWithFallback();
+    const page = await browser.newPage();
+    page.setDefaultTimeout(25000);
+
+    console.log("🔑 Navigating for market data...");
+    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
+
+    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
+    ]);
+
     await saveShot(page, "debug-market");
 
-    // attempt to gather asset strings heuristically
-    const pageText = await page.evaluate(() => document.body && (document.body.innerText || ""));
+    const pageText = await page.evaluate(() => document.body?.innerText || "");
     const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
-    const assets = [];
-    for (const m of pageText.matchAll(assetRE)) {
-      assets.push(m[1]);
-      if (assets.length >= 50) break;
-    }
+    const assets = [...pageText.matchAll(assetRE)].map((m) => m[1]).slice(0, 50);
 
     if (!assets.length) {
-      console.warn("⚠️ No assets discovered on dashboard text.");
+      console.warn("⚠️ No assets found on page.");
       return [];
     }
 
-    const selected = assets[Math.floor(Math.random() * assets.length)];
+    const asset = assets[Math.floor(Math.random() * assets.length)];
     const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
 
-    console.log("📊 getPocketData picked:", { asset: selected, decision });
-    return [{ asset: selected, decision }];
+    console.log("📊 Picked sample:", { asset, decision });
+    return [{ asset, decision }];
   } catch (err) {
-    console.error("❌ getPocketData error:", err && (err.message || err));
+    console.error("❌ getPocketData error:", err.message);
     return [];
   } finally {
-    if (browser) {
-      try {
-        await browser.close();
-        console.log("👋 Puppeteer browser closed");
-      } catch (_) {}
-    }
+    if (browser) await browser.close().catch(() => {});
   }
 }
