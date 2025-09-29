@@ -22,7 +22,7 @@ services:
     repo: https://github.com/Dans3101/Pocket-option-trading-bot
     branch: main
     rootDir: .
-    buildCommand: "npm install"
+    buildCommand: "PUPPETEER_SKIP_DOWNLOAD=true npm install && npx puppeteer browsers install chrome"
     startCommand: "node index.js"
     autoDeploy: true
     envVars:
