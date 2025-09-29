@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "postinstall": "PUPPETEER_SKIP_DOWNLOAD=false PUPPETEER_CACHE_DIR=.cache npm rebuild puppeteer"
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "engines": {
     "node": "22.x"
