@@ -44,7 +44,7 @@ async function saveShot(page, label = "debug") {
   }
 }
 
-/* Parse chat text for UP/DOWN signals */
+/* Parse chat text for UP/DOWN signals (arrows + words) */
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
 
@@ -54,20 +54,20 @@ function parseTextForSignals(text, limit = 10) {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .slice(-300); // last ~300 lines
+    .slice(-300); // keep last ~300 lines
 
   const signals = [];
   for (let i = lines.length - 1; i >= 0 && signals.length < limit; i--) {
     const line = lines[i];
 
     let decision = null;
-    if (/up|call|buy|⬆️/i.test(line)) decision = "UP";
-    if (/down|put|sell|⬇️/i.test(line)) decision = "DOWN";
+    if (/↑|⬆️|up|call|buy/i.test(line)) decision = "UP";
+    else if (/↓|⬇️|down|put|sell/i.test(line)) decision = "DOWN";
 
     if (decision) {
       const strength = /strong/i.test(line) ? "Strong" : "Normal";
       signals.push({
-        asset: "UNKNOWN", // simplify first
+        asset: "UNKNOWN", // placeholder (chat usually doesn’t mention asset)
         decision,
         strength,
         raw: line,
@@ -103,7 +103,7 @@ export async function getPocketSignals(limit = 5) {
     await saveShot(page, "debug-chat");
 
     // Extract all visible text
-    let text = await page.evaluate(() => document.body.innerText || "");
+    const text = await page.evaluate(() => document.body.innerText || "");
     const parsed = parseTextForSignals(text, limit);
 
     console.log(`✅ Extracted ${parsed.length} signals`);
