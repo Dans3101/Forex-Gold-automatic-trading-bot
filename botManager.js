@@ -9,9 +9,6 @@ let isBotOn = false;
 const knownChats = new Set();
 let scraperInterval = null; // ⏱️ scraper timer
 
-let puppeteerLib = null;
-let chromiumPath = null;
-
 /* ---------- Utility: Safe Telegram Send ---------- */
 export async function sendTelegramMessage(bot, text) {
   if (!telegramChatId) {
@@ -32,7 +29,7 @@ async function runScraper(bot) {
     console.log("🔍 Running combined scraper...");
 
     // 1. Market Data
-    const data = await getPocketData(puppeteerLib, chromiumPath);
+    const data = await getPocketData();
     console.log("📊 Raw Market Data:", data);
 
     if (data.length > 0) {
@@ -45,7 +42,7 @@ async function runScraper(bot) {
     }
 
     // 2. Live Chat Signals
-    const signals = await getPocketSignals(5, puppeteerLib, chromiumPath);
+    const signals = await getPocketSignals(5);
     console.log("📢 Raw Chat Signals:", signals);
 
     if (signals.length > 0) {
@@ -65,14 +62,11 @@ async function runScraper(bot) {
 }
 
 /* ---------- Main Bot Entry ---------- */
-export function startBot(bot, puppeteer, chromiumExecutablePath) {
+export function startBot(bot) {
   if (!bot) {
     console.error("❌ No bot instance passed into startBot()");
     return;
   }
-
-  puppeteerLib = puppeteer;
-  chromiumPath = chromiumExecutablePath;
 
   bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
