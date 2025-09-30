@@ -1,23 +1,20 @@
 // pocketscraper.js
+import chromium from "chrome-aws-lambda";
+import puppeteer from "puppeteer-core";
+
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
-/* ---------- Helpers ---------- */
-async function launchBrowser(puppeteer, chromiumPath) {
+/* ---------- Launch Browser ---------- */
+async function launchBrowser() {
   try {
     const browser = await puppeteer.launch({
+      executablePath: await chromium.executablePath,
       headless: true,
-      executablePath: chromiumPath,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--no-zygote",
-      ],
+      args: chromium.args,
     });
 
-    console.log("✅ Puppeteer launched with provided Chromium");
+    console.log("✅ Puppeteer launched successfully");
     return browser;
   } catch (err) {
     console.error("❌ Puppeteer failed to launch:", err.message);
@@ -54,15 +51,15 @@ function parseTextForSignals(text, limit = 10) {
 }
 
 /* ---------- Public Functions ---------- */
-export async function getPocketSignals(limit = 5, puppeteer, chromiumPath) {
+export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping.");
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping signals.");
     return [];
   }
 
   let browser;
   try {
-    browser = await launchBrowser(puppeteer, chromiumPath);
+    browser = await launchBrowser();
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
@@ -91,15 +88,15 @@ export async function getPocketSignals(limit = 5, puppeteer, chromiumPath) {
   }
 }
 
-export async function getPocketData(puppeteer, chromiumPath) {
+export async function getPocketData() {
   if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping.");
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping market data.");
     return [];
   }
 
   let browser;
   try {
-    browser = await launchBrowser(puppeteer, chromiumPath);
+    browser = await launchBrowser();
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
