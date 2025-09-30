@@ -1,4 +1,3 @@
-// index.js
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import { startBot } from "./botManager.js";
@@ -7,18 +6,16 @@ import { telegramToken, telegramChatId } from "./config.js";
 const app = express();
 app.use(express.json());
 
-// --- Check Telegram token ---
+// --- Initialize Telegram Bot ---
 if (!telegramToken) {
   console.error("❌ TELEGRAM_TOKEN missing");
   process.exit(1);
 }
 
-// --- Initialize Telegram Bot (Webhook mode) ---
 const bot = new TelegramBot(telegramToken, { polling: false, webHook: true });
 
 // --- Configure Telegram Webhook ---
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
-
 if (RENDER_URL) {
   const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
   console.log("⚙️ Setting Telegram webhook:", webhookUrl);
@@ -31,21 +28,21 @@ if (RENDER_URL) {
   console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
 }
 
-// --- Start Bot (scraper uses internal Puppeteer) ---
+// --- Start the bot ---
 startBot(bot);
 
-// --- Telegram Webhook Route ---
+// --- Webhook route ---
 app.post(`/bot${telegramToken}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// --- Home Route ---
+// --- Home route ---
 app.get("/", (req, res) => {
   res.send("✅ Bot is live — Telegram + PocketOption Scraper ready 🚀");
 });
 
-// --- Start Server ---
+// --- Start server ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
