@@ -4,6 +4,10 @@ import TelegramBot from "node-telegram-bot-api";
 import { startBot } from "./botManager.js";
 import { telegramToken, telegramChatId } from "./config.js";
 
+// ✅ Puppeteer-core with Chromium path
+import puppeteer from "puppeteer-core";
+import chromium from "chromium";
+
 const app = express();
 app.use(express.json());
 
@@ -34,8 +38,8 @@ if (RENDER_URL) {
   console.warn("⚠️ RENDER_URL not set, Telegram webhook may fail");
 }
 
-// --- Pass bot to botManager (handles .on/.off and scraping) ---
-startBot(bot);
+// --- Pass bot and puppeteer to botManager ---
+startBot(bot, puppeteer, chromium.path);
 
 // --- Route: Telegram Webhook ---
 app.post(`/bot${telegramToken}`, (req, res) => {
