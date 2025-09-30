@@ -4,13 +4,15 @@ import chromium from "@sparticuz/chromium";
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
+/* ---------- Launch Puppeteer Browser ---------- */
 async function launchBrowser() {
   try {
     const browser = await puppeteer.launch({
       args: chromium.args,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
-      defaultViewport: chromium.defaultViewport
+      executablePath: await chromium.executablePath(), // ← must call as a function
+      headless: true, // force headless for serverless
+      defaultViewport: chromium.defaultViewport,
+      ignoreDefaultArgs: ["--disable-extensions"],
     });
     console.log("✅ Puppeteer launched successfully");
     return browser;
@@ -20,6 +22,7 @@ async function launchBrowser() {
   }
 }
 
+/* ---------- Parse text for signals ---------- */
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(-300);
@@ -29,11 +32,17 @@ function parseTextForSignals(text, limit = 10) {
     let decision = null;
     if (/up|call|buy|⬆️/i.test(line)) decision = "⬆️ UP";
     if (/down|put|sell|⬇️/i.test(line)) decision = "⬇️ DOWN";
-    if (decision) signals.push({ asset: "UNKNOWN", decision, strength: /strong/i.test(line) ? "Strong" : "Normal", raw: line });
+    if (decision) signals.push({
+      asset: "UNKNOWN",
+      decision,
+      strength: /strong/i.test(line) ? "Strong" : "Normal",
+      raw: line
+    });
   }
   return signals;
 }
 
+/* ---------- Fetch Live Chat Signals ---------- */
 export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) return [];
   let browser;
@@ -45,7 +54,10 @@ export async function getPocketSignals(limit = 5) {
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
     await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
     await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-    await Promise.all([page.click('button[type="submit"]'), page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })]);
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })
+    ]);
 
     const text = await page.evaluate(() => document.body?.innerText || "");
     return parseTextForSignals(text, limit);
@@ -57,6 +69,7 @@ export async function getPocketSignals(limit = 5) {
   }
 }
 
+/* ---------- Fetch Market Data ---------- */
 export async function getPocketData() {
   if (!EMAIL || !PASSWORD) return [];
   let browser;
@@ -68,7 +81,10 @@ export async function getPocketData() {
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
     await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
     await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-    await Promise.all([page.click('button[type="submit"]'), page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })]);
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })
+    ]);
 
     const pageText = await page.evaluate(() => document.body?.innerText || "");
     const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
