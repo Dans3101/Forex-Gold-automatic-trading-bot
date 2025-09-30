@@ -5,21 +5,13 @@ import chromium from "@sparticuz/chromium";
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
-/* ---------- Launch Browser ---------- */
+/* ---------- Launch Browser (Serverless-friendly) ---------- */
 async function launchBrowser() {
   try {
-    // Use @sparticuz/chromium executable for serverless / Render
-    const executablePath =
-      process.env.NODE_ENV === "production"
-        ? await chromium.executablePath
-        : puppeteer.executablePath();
-
-    if (!executablePath) throw new Error("No Chromium executable path found!");
-
     const browser = await puppeteer.launch({
-      executablePath,
-      headless: true,
       args: chromium.args,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
       defaultViewport: chromium.defaultViewport,
     });
 
@@ -31,7 +23,7 @@ async function launchBrowser() {
   }
 }
 
-/* ---------- Parse chat text for UP/DOWN signals ---------- */
+/* ---------- Parse Chat Text for Signals ---------- */
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
 
@@ -61,7 +53,7 @@ function parseTextForSignals(text, limit = 10) {
 /* ---------- Get Pocket Signals ---------- */
 export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD");
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping signals.");
     return [];
   }
 
@@ -71,8 +63,10 @@ export async function getPocketSignals(limit = 5) {
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
+    console.log("🔑 Navigating to Pocket Option login...");
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
 
+    console.log("🔐 Logging in...");
     await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
     await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
     await Promise.all([
@@ -80,8 +74,12 @@ export async function getPocketSignals(limit = 5) {
       page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
     ]);
 
+    console.log("📥 Extracting signals from page text...");
     const text = await page.evaluate(() => document.body?.innerText || "");
-    return parseTextForSignals(text, limit);
+    const parsed = parseTextForSignals(text, limit);
+
+    console.log(`✅ Parsed ${parsed.length} signals.`);
+    return parsed;
   } catch (err) {
     console.error("❌ getPocketSignals error:", err.message);
     return [];
@@ -93,7 +91,7 @@ export async function getPocketSignals(limit = 5) {
 /* ---------- Get Pocket Market Data ---------- */
 export async function getPocketData() {
   if (!EMAIL || !PASSWORD) {
-    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD");
+    console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping market data.");
     return [];
   }
 
@@ -103,6 +101,7 @@ export async function getPocketData() {
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
+    console.log("🔑 Navigating for market data...");
     await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
 
     await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
@@ -116,11 +115,15 @@ export async function getPocketData() {
     const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
     const assets = [...pageText.matchAll(assetRE)].map((m) => m[1]).slice(0, 50);
 
-    if (!assets.length) return [];
+    if (!assets.length) {
+      console.warn("⚠️ No assets found on page.");
+      return [];
+    }
 
     const asset = assets[Math.floor(Math.random() * assets.length)];
     const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
 
+    console.log("📊 Picked sample:", { asset, decision });
     return [{ asset, decision }];
   } catch (err) {
     console.error("❌ getPocketData error:", err.message);
