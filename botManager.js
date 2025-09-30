@@ -10,13 +10,13 @@ const knownChats = new Set();
 let scraperInterval = null; // ⏱️ scraper timer
 
 /* ---------- Utility: Safe Telegram Send ---------- */
-export async function sendTelegramMessage(bot, text, chatId = telegramChatId) {
-  if (!chatId) {
+export async function sendTelegramMessage(bot, text) {
+  if (!telegramChatId) {
     console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send:", text);
     return;
   }
   try {
-    await bot.sendMessage(chatId, text, { parse_mode: "Markdown" });
+    await bot.sendMessage(telegramChatId, text, { parse_mode: "Markdown" });
     console.log("📤 Sent to Telegram:", text);
   } catch (err) {
     console.error("❌ Telegram send failed:", err.message);
@@ -28,7 +28,7 @@ async function runScraper(bot) {
   try {
     console.log("🔍 Running combined scraper...");
 
-    // 1️⃣ Market Data
+    // Market Data
     const data = await getPocketData();
     console.log("📊 Market Data:", data);
 
@@ -41,7 +41,7 @@ async function runScraper(bot) {
       console.log("ℹ️ No market data this cycle.");
     }
 
-    // 2️⃣ Live Chat Signals
+    // Live Chat Signals
     const signals = await getPocketSignals(5);
     console.log("📢 Chat Signals:", signals);
 
@@ -71,68 +71,67 @@ export function startBot(bot) {
   bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text?.trim().toLowerCase();
-
     console.log(`💬 Message from chat ID: ${chatId}, text: ${text}`);
 
-    // ✅ Auto-send chat ID to new users
+    // Auto-send chat ID to new users
     if (!knownChats.has(chatId)) {
       knownChats.add(chatId);
-      await sendTelegramMessage(
-        bot,
+      await bot.sendMessage(
+        chatId,
         `👋 Hello! Your Chat ID is: \`${chatId}\`\n\nSave this ID in your .env as *TELEGRAM_CHAT_ID* to receive signals here.`,
-        chatId
+        { parse_mode: "Markdown" }
       );
     }
 
-    // ✅ /id command
+    // /id command
     if (text === "/id") {
-      await sendTelegramMessage(bot, `🆔 Your Chat ID is: \`${chatId}\``, chatId);
+      await bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, { parse_mode: "Markdown" });
       return;
     }
 
-    // ✅ Restrict unauthorized users
+    // Restrict unauthorized users
     if (telegramChatId && String(chatId) !== String(telegramChatId)) {
-      await sendTelegramMessage(bot, "⚠️ You are not authorized to control signals.", chatId);
+      await bot.sendMessage(chatId, "⚠️ You are not authorized to control signals.");
       return;
     }
 
-    /* ---------- Commands ---------- */
+    // Commands
     if (text === ".on") {
       if (!isBotOn) {
         isBotOn = true;
         console.log("✅ Bot turned ON, starting scraper...");
-        await sendTelegramMessage(
-          bot,
-          `✅ Signal forwarding *enabled*!\n\n⏳ Fetching PocketOption signals every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`,
-          chatId
+
+        await bot.sendMessage(
+          chatId,
+          `✅ Signal forwarding *enabled*!\n⏳ Fetching PocketOption signals every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`,
+          { parse_mode: "Markdown" }
         );
 
-        // Run immediately & start interval
         runScraper(bot);
         scraperInterval = setInterval(() => runScraper(bot), signalIntervalMinutes * 60 * 1000);
       } else {
-        await sendTelegramMessage(bot, "⚠️ Bot is already ON.", chatId);
+        await bot.sendMessage(chatId, "⚠️ Bot is already ON.");
       }
     } else if (text === ".off") {
       if (isBotOn) {
         isBotOn = false;
         console.log("⛔ Bot turned OFF, stopping scraper...");
-        await sendTelegramMessage(bot, "⛔ Signal forwarding *disabled*.", chatId);
+        await bot.sendMessage(chatId, "⛔ Signal forwarding *disabled*.");
 
         if (scraperInterval) {
           clearInterval(scraperInterval);
           scraperInterval = null;
         }
       } else {
-        await sendTelegramMessage(bot, "⚠️ Bot is already OFF.", chatId);
+        await bot.sendMessage(chatId, "⚠️ Bot is already OFF.");
       }
     } else {
       console.log("🤖 Bot received other message:", msg.text);
-      await sendTelegramMessage(bot, `🤖 I received your message: "${msg.text}"`, chatId);
+      await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
     }
   });
 
-  /* ---------- Auto-start scraping on deploy ---------- */
+  // Auto-start scraping on deploy
   if (!isBotOn) {
     isBotOn = true;
     console.log("⚡ Auto-starting scraper after deploy...");
