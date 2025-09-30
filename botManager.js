@@ -20,6 +20,25 @@ export async function sendTelegramMessage(bot, text) {
   }
 }
 
+/* ---------- Scraper Wrapper with Retry Notifications ---------- */
+async function fetchWithRetry(bot, fetchFunction, type) {
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await fetchFunction();
+      if (attempt > 1) await sendTelegramMessage(bot, `✅ ${type} fetch succeeded on retry #${attempt}`);
+      return result;
+    } catch (err) {
+      console.error(`❌ ${type} fetch failed (attempt #${attempt}):`, err.message);
+      await sendTelegramMessage(bot, `🔁 ${type} fetch failed on attempt #${attempt}. Retrying...`);
+      if (attempt === maxRetries) {
+        await sendTelegramMessage(bot, `❌ ${type} fetch failed after ${maxRetries} attempts. Check logs.`);
+        return [];
+      }
+    }
+  }
+}
+
 /* ---------- Run One Scraper Cycle ---------- */
 async function runScraper(bot) {
   if (scraperRunning) {
@@ -32,7 +51,7 @@ async function runScraper(bot) {
     console.log("🔍 Running combined scraper...");
 
     // --- Market Data ---
-    const data = await getPocketData();
+    const data = await fetchWithRetry(bot, getPocketData, "Market Data");
     if (data.length === 0) {
       console.log("ℹ️ No market data this cycle.");
       await sendTelegramMessage(bot, "ℹ️ No market data this cycle.");
@@ -44,7 +63,7 @@ async function runScraper(bot) {
     }
 
     // --- Chat Signals ---
-    const signals = await getPocketSignals(5);
+    const signals = await fetchWithRetry(bot, () => getPocketSignals(5), "Chat Signals");
     if (signals.length === 0) {
       console.log("ℹ️ No signals extracted this cycle.");
       await sendTelegramMessage(bot, "ℹ️ No chat signals this cycle.");
