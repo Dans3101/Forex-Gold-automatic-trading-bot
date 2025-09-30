@@ -9,10 +9,10 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^138.0.2",
     "express": "^4.19.2",
     "node-telegram-bot-api": "^0.64.0",
-    "puppeteer-core": "^22.13.1",
+    "puppeteer-core": "^24.9.0",
+    "chrome-aws-lambda": "^20.0.0",
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
