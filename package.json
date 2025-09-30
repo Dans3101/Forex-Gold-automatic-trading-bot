@@ -1,23 +1,35 @@
 {
   "name": "pocket-option-trading-bot",
   "version": "1.0.0",
-  "description": "Automated Pocket Option trading bot with Telegram integration",
-  "type": "module",
+  "description": "Telegram bot for Pocket Option signals scraping and trading automation",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "start": "node index.js"
-  },
-  "engines": {
-    "node": "22.x"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^127.0.0",
-    "axios": "^1.6.8",
-    "dotenv": "^16.3.1",
+    "@sparticuz/chromium": "^123.0.2",
     "express": "^4.19.2",
-    "node-fetch": "^3.3.2",
-    "node-telegram-bot-api": "^0.61.0",
-    "puppeteer-core": "^22.10.0",
-    "ws": "^8.16.0"
-  }
+    "node-telegram-bot-api": "^0.64.0",
+    "puppeteer-core": "^22.13.1",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "pocket option",
+    "trading",
+    "puppeteer",
+    "forex",
+    "binary"
+  ],
+  "author": "Dans3101",
+  "license": "MIT"
 }
