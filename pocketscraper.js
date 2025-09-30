@@ -8,9 +8,15 @@ const PASSWORD = process.env.POCKET_PASSWORD;
 /* ---------- Launch Browser ---------- */
 async function launchBrowser() {
   try {
+    const executablePath = await chromium.executablePath;
+
+    if (!executablePath) {
+      throw new Error("No executablePath found for puppeteer-core with chrome-aws-lambda");
+    }
+
     const browser = await puppeteer.launch({
-      executablePath: await chromium.executablePath,
-      headless: true,
+      executablePath,
+      headless: chromium.headless,
       args: chromium.args,
     });
 
