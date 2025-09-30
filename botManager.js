@@ -20,6 +20,11 @@ export async function sendTelegramMessage(bot, text) {
   }
 }
 
+/* ---------- Delay Helper ---------- */
+function delay(ms) {
+  return new Promise(res => setTimeout(res, ms));
+}
+
 /* ---------- Scraper Wrapper with Retry Notifications ---------- */
 async function fetchWithRetry(bot, fetchFunction, type) {
   const maxRetries = 3;
@@ -59,6 +64,7 @@ async function runScraper(bot) {
       console.log("📊 Market Data:", data);
       for (const d of data) {
         await sendTelegramMessage(bot, `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`);
+        await delay(30000); // 30-second delay between assets
       }
     }
 
@@ -74,6 +80,7 @@ async function runScraper(bot) {
           bot,
           `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`
         );
+        await delay(30000); // 30-second delay between signals
       }
     }
 
