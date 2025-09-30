@@ -1,23 +1,23 @@
 // pocketscraper.js
-import puppeteer from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
-
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 
 /* ---------- Helpers ---------- */
-async function launchBrowser() {
+async function launchBrowser(puppeteer, chromiumPath) {
   try {
-    const executablePath = await chromium.executablePath();
-
     const browser = await puppeteer.launch({
-      headless: chromium.headless,
-      executablePath,
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
+      headless: true,
+      executablePath: chromiumPath,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+      ],
     });
 
-    console.log("✅ Puppeteer launched with @sparticuz/chromium");
+    console.log("✅ Puppeteer launched with provided Chromium");
     return browser;
   } catch (err) {
     console.error("❌ Puppeteer failed to launch:", err.message);
@@ -54,7 +54,7 @@ function parseTextForSignals(text, limit = 10) {
 }
 
 /* ---------- Public Functions ---------- */
-export async function getPocketSignals(limit = 5) {
+export async function getPocketSignals(limit = 5, puppeteer, chromiumPath) {
   if (!EMAIL || !PASSWORD) {
     console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping.");
     return [];
@@ -62,7 +62,7 @@ export async function getPocketSignals(limit = 5) {
 
   let browser;
   try {
-    browser = await launchBrowser();
+    browser = await launchBrowser(puppeteer, chromiumPath);
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
@@ -91,7 +91,7 @@ export async function getPocketSignals(limit = 5) {
   }
 }
 
-export async function getPocketData() {
+export async function getPocketData(puppeteer, chromiumPath) {
   if (!EMAIL || !PASSWORD) {
     console.warn("⚠️ Missing POCKET_EMAIL / POCKET_PASSWORD - skipping.");
     return [];
@@ -99,7 +99,7 @@ export async function getPocketData() {
 
   let browser;
   try {
-    browser = await launchBrowser();
+    browser = await launchBrowser(puppeteer, chromiumPath);
     const page = await browser.newPage();
     page.setDefaultTimeout(25000);
 
