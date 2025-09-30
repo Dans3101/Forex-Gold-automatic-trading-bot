@@ -3,14 +3,16 @@ import chromium from "@sparticuz/chromium";
 
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
+const NAV_TIMEOUT = 180000; // 3 minutes
+const MAX_RETRIES = 2;
 
 /* ---------- Launch Puppeteer Browser ---------- */
 async function launchBrowser() {
   try {
     const browser = await puppeteer.launch({
       args: chromium.args,
-      executablePath: await chromium.executablePath(), // ← must call as a function
-      headless: true, // force headless for serverless
+      executablePath: await chromium.executablePath(),
+      headless: true,
       defaultViewport: chromium.defaultViewport,
       ignoreDefaultArgs: ["--disable-extensions"],
     });
@@ -42,62 +44,68 @@ function parseTextForSignals(text, limit = 10) {
   return signals;
 }
 
-/* ---------- Fetch Live Chat Signals ---------- */
+/* ---------- Internal function: login & get page ---------- */
+async function loginAndGetPage(browser) {
+  const page = await browser.newPage();
+  page.setDefaultTimeout(NAV_TIMEOUT);
+
+  await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2", timeout: NAV_TIMEOUT });
+  await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+  await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
+  await Promise.all([
+    page.click('button[type="submit"]'),
+    page.waitForNavigation({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT })
+  ]);
+
+  return page;
+}
+
+/* ---------- Fetch Live Chat Signals with retries ---------- */
 export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) return [];
   let browser;
-  try {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-    page.setDefaultTimeout(25000);
+  let attempt = 0;
 
-    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
-    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
-    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-    await Promise.all([
-      page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })
-    ]);
-
-    const text = await page.evaluate(() => document.body?.innerText || "");
-    return parseTextForSignals(text, limit);
-  } catch (err) {
-    console.error("❌ getPocketSignals error:", err.message);
-    return [];
-  } finally {
-    if (browser) await browser.close().catch(() => {});
+  while (attempt <= MAX_RETRIES) {
+    try {
+      browser = await launchBrowser();
+      const page = await loginAndGetPage(browser);
+      const text = await page.evaluate(() => document.body?.innerText || "");
+      return parseTextForSignals(text, limit);
+    } catch (err) {
+      console.error(`❌ getPocketSignals attempt ${attempt + 1} failed:`, err.message);
+      attempt++;
+      if (browser) await browser.close().catch(() => {});
+      if (attempt > MAX_RETRIES) return [];
+      console.log("🔁 Retrying getPocketSignals...");
+    }
   }
 }
 
-/* ---------- Fetch Market Data ---------- */
+/* ---------- Fetch Market Data with retries ---------- */
 export async function getPocketData() {
   if (!EMAIL || !PASSWORD) return [];
   let browser;
-  try {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-    page.setDefaultTimeout(25000);
+  let attempt = 0;
 
-    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
-    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
-    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-    await Promise.all([
-      page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 })
-    ]);
+  while (attempt <= MAX_RETRIES) {
+    try {
+      browser = await launchBrowser();
+      const page = await loginAndGetPage(browser);
+      const pageText = await page.evaluate(() => document.body?.innerText || "");
+      const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
+      const assets = [...pageText.matchAll(assetRE)].map(m => m[1]).slice(0, 50);
 
-    const pageText = await page.evaluate(() => document.body?.innerText || "");
-    const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
-    const assets = [...pageText.matchAll(assetRE)].map(m => m[1]).slice(0, 50);
-
-    if (!assets.length) return [];
-    const asset = assets[Math.floor(Math.random() * assets.length)];
-    const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
-    return [{ asset, decision }];
-  } catch (err) {
-    console.error("❌ getPocketData error:", err.message);
-    return [];
-  } finally {
-    if (browser) await browser.close().catch(() => {});
+      if (!assets.length) return [];
+      const asset = assets[Math.floor(Math.random() * assets.length)];
+      const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
+      return [{ asset, decision }];
+    } catch (err) {
+      console.error(`❌ getPocketData attempt ${attempt + 1} failed:`, err.message);
+      attempt++;
+      if (browser) await browser.close().catch(() => {});
+      if (attempt > MAX_RETRIES) return [];
+      console.log("🔁 Retrying getPocketData...");
+    }
   }
 }
