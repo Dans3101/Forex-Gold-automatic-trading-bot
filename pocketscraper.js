@@ -5,6 +5,7 @@ const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
 const NAV_TIMEOUT = 180000; // 3 minutes
 const MAX_RETRIES = 2;
+const ASSET_DELAY = 30000; // 30 seconds
 
 /* ---------- Launch Puppeteer Browser ---------- */
 async function launchBrowser() {
@@ -60,7 +61,44 @@ async function loginAndGetPage(browser) {
   return page;
 }
 
-/* ---------- Fetch Live Chat Signals with retries ---------- */
+/* ---------- Fetch signals for multiple assets ---------- */
+export async function getPocketData() {
+  if (!EMAIL || !PASSWORD) return [];
+  let browser;
+  let attempt = 0;
+
+  while (attempt <= MAX_RETRIES) {
+    try {
+      browser = await launchBrowser();
+      const page = await loginAndGetPage(browser);
+      const pageText = await page.evaluate(() => document.body?.innerText || "");
+      const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
+      const assets = [...pageText.matchAll(assetRE)].map(m => m[1]).slice(0, 10); // limit to 10 assets per cycle
+
+      if (!assets.length) return [];
+
+      const results = [];
+      for (const asset of assets) {
+        const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
+        results.push({ asset, decision });
+        console.log(`📌 Asset: ${asset}, Decision: ${decision}`);
+        await new Promise(res => setTimeout(res, ASSET_DELAY));
+      }
+
+      return results;
+    } catch (err) {
+      console.error(`❌ getPocketData attempt ${attempt + 1} failed:`, err.message);
+      attempt++;
+      if (browser) await browser.close().catch(() => {});
+      if (attempt > MAX_RETRIES) return [];
+      console.log("🔁 Retrying getPocketData...");
+    } finally {
+      if (browser) await browser.close().catch(() => {});
+    }
+  }
+}
+
+/* ---------- Fetch Live Chat Signals ---------- */
 export async function getPocketSignals(limit = 5) {
   if (!EMAIL || !PASSWORD) return [];
   let browser;
@@ -78,34 +116,8 @@ export async function getPocketSignals(limit = 5) {
       if (browser) await browser.close().catch(() => {});
       if (attempt > MAX_RETRIES) return [];
       console.log("🔁 Retrying getPocketSignals...");
-    }
-  }
-}
-
-/* ---------- Fetch Market Data with retries ---------- */
-export async function getPocketData() {
-  if (!EMAIL || !PASSWORD) return [];
-  let browser;
-  let attempt = 0;
-
-  while (attempt <= MAX_RETRIES) {
-    try {
-      browser = await launchBrowser();
-      const page = await loginAndGetPage(browser);
-      const pageText = await page.evaluate(() => document.body?.innerText || "");
-      const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
-      const assets = [...pageText.matchAll(assetRE)].map(m => m[1]).slice(0, 50);
-
-      if (!assets.length) return [];
-      const asset = assets[Math.floor(Math.random() * assets.length)];
-      const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
-      return [{ asset, decision }];
-    } catch (err) {
-      console.error(`❌ getPocketData attempt ${attempt + 1} failed:`, err.message);
-      attempt++;
+    } finally {
       if (browser) await browser.close().catch(() => {});
-      if (attempt > MAX_RETRIES) return [];
-      console.log("🔁 Retrying getPocketData...");
     }
   }
 }
