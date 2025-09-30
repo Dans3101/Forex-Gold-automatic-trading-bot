@@ -5,6 +5,7 @@ console.log("🚀 Telegram Bot Manager loaded...");
 console.log("👥 Configured Chat ID:", telegramChatId || "❌ Not set");
 
 let isBotOn = false;
+let scraperRunning = false; // ⏳ prevent overlapping scraper runs
 const knownChats = new Set();
 let scraperInterval = null;
 
@@ -21,9 +22,16 @@ export async function sendTelegramMessage(bot, text) {
 
 /* ---------- Run One Scraper Cycle ---------- */
 async function runScraper(bot) {
+  if (scraperRunning) {
+    console.log("⏳ Scraper is already running, skipping this cycle...");
+    return;
+  }
+
+  scraperRunning = true;
   try {
     console.log("🔍 Running combined scraper...");
 
+    // --- Market Data ---
     const data = await getPocketData();
     console.log("📊 Market Data:", data);
     for (const d of data) {
@@ -31,6 +39,7 @@ async function runScraper(bot) {
     }
     if (data.length === 0) console.log("ℹ️ No market data this cycle.");
 
+    // --- Chat Signals ---
     const signals = await getPocketSignals(5);
     console.log("📢 Chat Signals:", signals);
     for (const sig of signals) {
@@ -45,6 +54,8 @@ async function runScraper(bot) {
   } catch (err) {
     console.error("❌ Scraper error:", err.message);
     await sendTelegramMessage(bot, "⚠️ Error fetching signals. Check logs.");
+  } finally {
+    scraperRunning = false;
   }
 }
 
@@ -57,6 +68,7 @@ export function startBot(bot) {
     const text = msg.text?.trim().toLowerCase();
     console.log(`💬 Message from chat ID: ${chatId}, text: ${text}`);
 
+    // --- Auto-send Chat ID ---
     if (!knownChats.has(chatId)) {
       knownChats.add(chatId);
       await bot.sendMessage(
@@ -66,28 +78,39 @@ export function startBot(bot) {
       );
     }
 
+    // --- /id command ---
     if (text === "/id") return bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, { parse_mode: "Markdown" });
 
+    // --- Restrict unauthorized users ---
     if (telegramChatId && String(chatId) !== String(telegramChatId)) {
       return bot.sendMessage(chatId, "⚠️ You are not authorized to control signals.");
     }
 
+    // --- Commands ---
     if (text === ".on" && !isBotOn) {
       isBotOn = true;
       console.log("✅ Bot turned ON, starting scraper...");
-      await bot.sendMessage(chatId, `✅ Signal forwarding enabled! Fetching every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`, { parse_mode: "Markdown" });
+      await bot.sendMessage(
+        chatId,
+        `✅ Signal forwarding enabled! Fetching every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`,
+        { parse_mode: "Markdown" }
+      );
       runScraper(bot);
       scraperInterval = setInterval(() => runScraper(bot), signalIntervalMinutes * 60 * 1000);
     } else if (text === ".off" && isBotOn) {
       isBotOn = false;
       console.log("⛔ Bot turned OFF, stopping scraper...");
       await bot.sendMessage(chatId, "⛔ Signal forwarding disabled.");
-      if (scraperInterval) { clearInterval(scraperInterval); scraperInterval = null; }
+      if (scraperInterval) {
+        clearInterval(scraperInterval);
+        scraperInterval = null;
+      }
     } else if (text !== ".on" && text !== ".off") {
       await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
     }
   });
 
+  // --- Auto-start scraper on deploy ---
   if (!isBotOn) {
     isBotOn = true;
     console.log("⚡ Auto-starting scraper after deploy...");
