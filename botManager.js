@@ -30,29 +30,25 @@ async function runScraper(bot) {
 
     // 1. Market Data
     const data = await getPocketData();
-    console.log("📊 Raw Market Data:", data);
+    console.log("📊 Market Data:", data);
 
-    if (data.length > 0) {
-      for (const d of data) {
-        const msg = `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`;
-        await sendTelegramMessage(bot, msg);
-      }
-    } else {
-      console.log("ℹ️ No market data this cycle.");
+    for (const d of data) {
+      const msg = `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`;
+      await sendTelegramMessage(bot, msg);
     }
+
+    if (data.length === 0) console.log("ℹ️ No market data this cycle.");
 
     // 2. Live Chat Signals
     const signals = await getPocketSignals(5);
-    console.log("📢 Raw Chat Signals:", signals);
+    console.log("📢 Chat Signals:", signals);
 
-    if (signals.length > 0) {
-      for (const sig of signals) {
-        const msg = `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`;
-        await sendTelegramMessage(bot, msg);
-      }
-    } else {
-      console.log("ℹ️ No signals extracted this cycle.");
+    for (const sig of signals) {
+      const msg = `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`;
+      await sendTelegramMessage(bot, msg);
     }
+
+    if (signals.length === 0) console.log("ℹ️ No signals extracted this cycle.");
 
     console.log("✅ Scraper cycle complete.");
   } catch (err) {
@@ -86,9 +82,7 @@ export function startBot(bot) {
 
     // ✅ /id command
     if (text === "/id") {
-      await bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, {
-        parse_mode: "Markdown",
-      });
+      await bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, { parse_mode: "Markdown" });
       return;
     }
 
@@ -106,21 +100,16 @@ export function startBot(bot) {
 
         await bot.sendMessage(
           chatId,
-          `✅ Signal forwarding *enabled*!\n\n⏳ Fetching PocketOption signals every *${signalIntervalMinutes} minutes*.\n\nIncludes:\n- 📊 Market Data\n- 📢 Live Chat Signals`,
+          `✅ Signal forwarding *enabled*!\n\n⏳ Fetching PocketOption signals every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`,
           { parse_mode: "Markdown" }
         );
 
-        // Run immediately
         runScraper(bot);
-
-        // Keep running
         scraperInterval = setInterval(() => runScraper(bot), signalIntervalMinutes * 60 * 1000);
       } else {
         await bot.sendMessage(chatId, "⚠️ Bot is already ON.");
       }
-    }
-
-    else if (text === ".off") {
+    } else if (text === ".off") {
       if (isBotOn) {
         isBotOn = false;
         console.log("⛔ Bot turned OFF, stopping scraper...");
@@ -133,9 +122,7 @@ export function startBot(bot) {
       } else {
         await bot.sendMessage(chatId, "⚠️ Bot is already OFF.");
       }
-    }
-
-    else {
+    } else {
       console.log("🤖 Bot received other message:", msg.text);
       await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
     }
