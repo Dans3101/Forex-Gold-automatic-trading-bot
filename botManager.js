@@ -1,4 +1,3 @@
-// botManager.js
 import { telegramChatId, signalIntervalMinutes } from "./config.js";
 import { getPocketData, getPocketSignals } from "./pocketscraper.js";
 
@@ -7,14 +6,11 @@ console.log("👥 Configured Chat ID:", telegramChatId || "❌ Not set");
 
 let isBotOn = false;
 const knownChats = new Set();
-let scraperInterval = null; // ⏱️ scraper timer
+let scraperInterval = null;
 
-/* ---------- Utility: Safe Telegram Send ---------- */
+/* ---------- Safe Telegram Send ---------- */
 export async function sendTelegramMessage(bot, text) {
-  if (!telegramChatId) {
-    console.warn("⚠️ TELEGRAM_CHAT_ID missing, cannot send:", text);
-    return;
-  }
+  if (!telegramChatId) return console.warn("⚠️ TELEGRAM_CHAT_ID missing:", text);
   try {
     await bot.sendMessage(telegramChatId, text, { parse_mode: "Markdown" });
     console.log("📤 Sent to Telegram:", text);
@@ -28,31 +24,22 @@ async function runScraper(bot) {
   try {
     console.log("🔍 Running combined scraper...");
 
-    // Market Data
     const data = await getPocketData();
     console.log("📊 Market Data:", data);
-
-    if (data.length > 0) {
-      for (const d of data) {
-        const msg = `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`;
-        await sendTelegramMessage(bot, msg);
-      }
-    } else {
-      console.log("ℹ️ No market data this cycle.");
+    for (const d of data) {
+      await sendTelegramMessage(bot, `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`);
     }
+    if (data.length === 0) console.log("ℹ️ No market data this cycle.");
 
-    // Live Chat Signals
     const signals = await getPocketSignals(5);
     console.log("📢 Chat Signals:", signals);
-
-    if (signals.length > 0) {
-      for (const sig of signals) {
-        const msg = `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`;
-        await sendTelegramMessage(bot, msg);
-      }
-    } else {
-      console.log("ℹ️ No signals extracted this cycle.");
+    for (const sig of signals) {
+      await sendTelegramMessage(
+        bot,
+        `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`
+      );
     }
+    if (signals.length === 0) console.log("ℹ️ No signals extracted this cycle.");
 
     console.log("✅ Scraper cycle complete.");
   } catch (err) {
@@ -61,77 +48,46 @@ async function runScraper(bot) {
   }
 }
 
-/* ---------- Main Bot Entry ---------- */
+/* ---------- Start Bot ---------- */
 export function startBot(bot) {
-  if (!bot) {
-    console.error("❌ No bot instance passed into startBot()");
-    return;
-  }
+  if (!bot) return console.error("❌ No bot instance passed into startBot()");
 
   bot.on("message", async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text?.trim().toLowerCase();
     console.log(`💬 Message from chat ID: ${chatId}, text: ${text}`);
 
-    // Auto-send chat ID to new users
     if (!knownChats.has(chatId)) {
       knownChats.add(chatId);
       await bot.sendMessage(
         chatId,
-        `👋 Hello! Your Chat ID is: \`${chatId}\`\n\nSave this ID in your .env as *TELEGRAM_CHAT_ID* to receive signals here.`,
+        `👋 Hello! Your Chat ID is: \`${chatId}\`\nSave this ID in your .env as *TELEGRAM_CHAT_ID* to receive signals.`,
         { parse_mode: "Markdown" }
       );
     }
 
-    // /id command
-    if (text === "/id") {
-      await bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, { parse_mode: "Markdown" });
-      return;
-    }
+    if (text === "/id") return bot.sendMessage(chatId, `🆔 Your Chat ID is: \`${chatId}\``, { parse_mode: "Markdown" });
 
-    // Restrict unauthorized users
     if (telegramChatId && String(chatId) !== String(telegramChatId)) {
-      await bot.sendMessage(chatId, "⚠️ You are not authorized to control signals.");
-      return;
+      return bot.sendMessage(chatId, "⚠️ You are not authorized to control signals.");
     }
 
-    // Commands
-    if (text === ".on") {
-      if (!isBotOn) {
-        isBotOn = true;
-        console.log("✅ Bot turned ON, starting scraper...");
-
-        await bot.sendMessage(
-          chatId,
-          `✅ Signal forwarding *enabled*!\n⏳ Fetching PocketOption signals every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`,
-          { parse_mode: "Markdown" }
-        );
-
-        runScraper(bot);
-        scraperInterval = setInterval(() => runScraper(bot), signalIntervalMinutes * 60 * 1000);
-      } else {
-        await bot.sendMessage(chatId, "⚠️ Bot is already ON.");
-      }
-    } else if (text === ".off") {
-      if (isBotOn) {
-        isBotOn = false;
-        console.log("⛔ Bot turned OFF, stopping scraper...");
-        await bot.sendMessage(chatId, "⛔ Signal forwarding *disabled*.");
-
-        if (scraperInterval) {
-          clearInterval(scraperInterval);
-          scraperInterval = null;
-        }
-      } else {
-        await bot.sendMessage(chatId, "⚠️ Bot is already OFF.");
-      }
-    } else {
-      console.log("🤖 Bot received other message:", msg.text);
+    if (text === ".on" && !isBotOn) {
+      isBotOn = true;
+      console.log("✅ Bot turned ON, starting scraper...");
+      await bot.sendMessage(chatId, `✅ Signal forwarding enabled! Fetching every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`, { parse_mode: "Markdown" });
+      runScraper(bot);
+      scraperInterval = setInterval(() => runScraper(bot), signalIntervalMinutes * 60 * 1000);
+    } else if (text === ".off" && isBotOn) {
+      isBotOn = false;
+      console.log("⛔ Bot turned OFF, stopping scraper...");
+      await bot.sendMessage(chatId, "⛔ Signal forwarding disabled.");
+      if (scraperInterval) { clearInterval(scraperInterval); scraperInterval = null; }
+    } else if (text !== ".on" && text !== ".off") {
       await bot.sendMessage(chatId, `🤖 I received your message: "${msg.text}"`);
     }
   });
 
-  // Auto-start scraping on deploy
   if (!isBotOn) {
     isBotOn = true;
     console.log("⚡ Auto-starting scraper after deploy...");
