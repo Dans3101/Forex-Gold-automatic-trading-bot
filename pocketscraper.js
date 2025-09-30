@@ -1,6 +1,6 @@
 // pocketscraper.js
 import puppeteer from "puppeteer-core";
-import chromium from "@sparticuz/chromium"; // ✅ correct chromium lib for serverless
+import chromium from "@sparticuz/chromium";
 
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
@@ -8,17 +8,16 @@ const PASSWORD = process.env.POCKET_PASSWORD;
 /* ---------- Helpers ---------- */
 async function launchBrowser() {
   try {
-    const executablePath =
-      (await chromium.executablePath()) || process.env.CHROME_PATH;
+    const executablePath = await chromium.executablePath();
 
     const browser = await puppeteer.launch({
-      headless: true,
+      headless: chromium.headless,
       executablePath,
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
     });
 
-    console.log("✅ Puppeteer launched with Chromium");
+    console.log("✅ Puppeteer launched with @sparticuz/chromium");
     return browser;
   } catch (err) {
     console.error("❌ Puppeteer failed to launch:", err.message);
@@ -30,10 +29,7 @@ async function launchBrowser() {
 function parseTextForSignals(text, limit = 10) {
   if (!text) return [];
 
-  console.log(
-    "📝 RAW chat text preview:",
-    text.slice(0, 300).replace(/\s+/g, " ")
-  );
+  console.log("📝 RAW chat text preview:", text.slice(0, 300).replace(/\s+/g, " "));
 
   const lines = text
     .split(/\r?\n/)
@@ -71,20 +67,13 @@ export async function getPocketSignals(limit = 5) {
     page.setDefaultTimeout(25000);
 
     console.log("🔑 Navigating to Pocket Option login...");
-    await page.goto("https://pocketoption.com/en/login/", {
-      waitUntil: "networkidle2",
-    });
+    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
 
     console.log("🔐 Logging in...");
-    await page.type("#login_email", EMAIL, { delay: 80 }).catch(() =>
-      page.type('input[type="email"]', EMAIL, { delay: 80 })
-    );
-    await page.type("#login_password", PASSWORD, { delay: 80 }).catch(() =>
-      page.type('input[type="password"]', PASSWORD, { delay: 80 })
-    );
-
+    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
     await Promise.all([
-      page.click('button[type="submit"], button.login__submit'),
+      page.click('button[type="submit"]'),
       page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
     ]);
 
@@ -115,28 +104,18 @@ export async function getPocketData() {
     page.setDefaultTimeout(25000);
 
     console.log("🔑 Navigating for market data...");
-    await page.goto("https://pocketoption.com/en/login/", {
-      waitUntil: "networkidle2",
-    });
+    await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2" });
 
-    await page.type("#login_email", EMAIL, { delay: 80 }).catch(() =>
-      page.type('input[type="email"]', EMAIL, { delay: 80 })
-    );
-    await page.type("#login_password", PASSWORD, { delay: 80 }).catch(() =>
-      page.type('input[type="password"]', PASSWORD, { delay: 80 })
-    );
-
+    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
     await Promise.all([
-      page.click('button[type="submit"], button.login__submit'),
+      page.click('button[type="submit"]'),
       page.waitForNavigation({ waitUntil: "networkidle2", timeout: 25000 }),
     ]);
 
     const pageText = await page.evaluate(() => document.body?.innerText || "");
-    const assetRE =
-      /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
-    const assets = [...pageText.matchAll(assetRE)]
-      .map((m) => m[1])
-      .slice(0, 50);
+    const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
+    const assets = [...pageText.matchAll(assetRE)].map((m) => m[1]).slice(0, 50);
 
     if (!assets.length) {
       console.warn("⚠️ No assets found on page.");
