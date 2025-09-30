@@ -33,27 +33,35 @@ async function runScraper(bot) {
 
     // --- Market Data ---
     const data = await getPocketData();
-    console.log("📊 Market Data:", data);
-    for (const d of data) {
-      await sendTelegramMessage(bot, `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`);
+    if (data.length === 0) {
+      console.log("ℹ️ No market data this cycle.");
+      await sendTelegramMessage(bot, "ℹ️ No market data this cycle.");
+    } else {
+      console.log("📊 Market Data:", data);
+      for (const d of data) {
+        await sendTelegramMessage(bot, `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`);
+      }
     }
-    if (data.length === 0) console.log("ℹ️ No market data this cycle.");
 
     // --- Chat Signals ---
     const signals = await getPocketSignals(5);
-    console.log("📢 Chat Signals:", signals);
-    for (const sig of signals) {
-      await sendTelegramMessage(
-        bot,
-        `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`
-      );
+    if (signals.length === 0) {
+      console.log("ℹ️ No signals extracted this cycle.");
+      await sendTelegramMessage(bot, "ℹ️ No chat signals this cycle.");
+    } else {
+      console.log("📢 Chat Signals:", signals);
+      for (const sig of signals) {
+        await sendTelegramMessage(
+          bot,
+          `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`
+        );
+      }
     }
-    if (signals.length === 0) console.log("ℹ️ No signals extracted this cycle.");
 
     console.log("✅ Scraper cycle complete.");
   } catch (err) {
     console.error("❌ Scraper error:", err.message);
-    await sendTelegramMessage(bot, "⚠️ Error fetching signals. Check logs.");
+    await sendTelegramMessage(bot, `⚠️ Error fetching signals. Check logs: ${err.message}`);
   } finally {
     scraperRunning = false;
   }
