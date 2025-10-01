@@ -15,8 +15,9 @@ if (!telegramToken) {
 
 const bot = new TelegramBot(telegramToken, { polling: false, webHook: true });
 
-// Detect Render URL for webhook
+/* ------------------ Webhook Setup (Render Compatible) ------------------ */
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || process.env.RENDER_INTERNAL_URL;
+
 if (RENDER_URL) {
   const webhookUrl = `${RENDER_URL}/bot${telegramToken}`;
   console.log("⚙️ Setting Telegram webhook to:", webhookUrl);
@@ -25,7 +26,7 @@ if (RENDER_URL) {
     .then(() => console.log("✅ Telegram webhook set successfully"))
     .catch((err) => console.error("❌ Failed to set webhook:", err.message));
 } else {
-  console.warn("⚠️ No RENDER_URL found. Webhook may not work on Render.");
+  console.warn("⚠️ RENDER_URL not detected — polling/webhook may not work.");
 }
 
 /* ------------------ Start Bot ------------------ */
@@ -33,34 +34,39 @@ startBot(bot);
 
 /* ------------------ Express Routes ------------------ */
 
-// Telegram Webhook route
+// ✅ Webhook endpoint for Telegram
 app.post(`/bot${telegramToken}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
+  try {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("❌ Error processing Telegram update:", err.message);
+    res.sendStatus(500);
+  }
 });
 
-// Home route (health check)
+// ✅ Health check / Home route
 app.get("/", (req, res) => {
   res.send("✅ Bot is live — Telegram + PocketOption Scraper ready 🚀");
 });
 
-/* ------------------ Start Server ------------------ */
+/* ------------------ Server Startup ------------------ */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
 
-  // Send startup message if TELEGRAM_CHAT_ID is set
+  // ✅ Send startup message to Telegram only if chat ID exists
   if (telegramChatId) {
     try {
       await bot.sendMessage(
         telegramChatId,
-        "🚀 Bot is online and ready!\n\nUse `.on` to start signal scraping.\nUse `.off` to stop."
+        `🚀 Bot is online!\n\nUse:\n.on → start signals\n.off → stop signals\n\n📌 First Run: ${process.env.FIRST_RUN || "false"}`
       );
       console.log("📩 Startup message sent to Telegram.");
     } catch (err) {
       console.error("❌ Failed to send startup message:", err.message);
     }
   } else {
-    console.warn("⚠️ TELEGRAM_CHAT_ID not set — no startup message sent.");
+    console.warn("⚠️ TELEGRAM_CHAT_ID not set — startup message skipped.");
   }
 });
