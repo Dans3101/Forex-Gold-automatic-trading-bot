@@ -1,5 +1,5 @@
 import { telegramChatId, signalIntervalMinutes } from "./config.js";
-import { getPocketData } from "./pocketscraper.js";  // ✅ Removed getPocketSignals
+import { getPocketData, getPocketSignals } from "./pocketscraper.js";
 
 console.log("🚀 Telegram Bot Manager loaded...");
 console.log("👥 Configured Chat ID:", telegramChatId || "❌ Not set");
@@ -8,6 +8,7 @@ let isBotOn = false;
 let scraperRunning = false; // ⏳ prevent overlapping scraper runs
 const knownChats = new Set();
 let scraperInterval = null;
+let firstRun = true; // 🔑 local flag (no need to set in Render)
 
 /* ---------- Safe Telegram Send ---------- */
 export async function sendTelegramMessage(bot, text) {
@@ -53,13 +54,13 @@ async function runScraper(bot) {
 
   scraperRunning = true;
   try {
-    console.log("🔍 Running scraper...");
+    console.log("🔍 Running combined scraper...");
 
-    // --- Market Data Only (Signals removed for now) ---
+    // --- Market Data ---
     const data = await fetchWithRetry(bot, getPocketData, "Market Data");
     if (data.length === 0) {
       console.log("ℹ️ No market data this cycle.");
-      await sendTelegramMessage(bot, "ℹ️ No market data this cycle.");
+      if (!firstRun) await sendTelegramMessage(bot, "ℹ️ No market data this cycle.");
     } else {
       console.log("📊 Market Data:", data);
       for (const d of data) {
@@ -68,12 +69,29 @@ async function runScraper(bot) {
       }
     }
 
+    // --- Chat Signals ---
+    const signals = await fetchWithRetry(bot, () => getPocketSignals(5), "Chat Signals");
+    if (signals.length === 0) {
+      console.log("ℹ️ No signals extracted this cycle.");
+      if (!firstRun) await sendTelegramMessage(bot, "ℹ️ No chat signals this cycle.");
+    } else {
+      console.log("📢 Chat Signals:", signals);
+      for (const sig of signals) {
+        await sendTelegramMessage(
+          bot,
+          `📢 *Chat Signal* (${sig.strength})\nAsset: *${sig.asset}*\nDecision: *${sig.decision}*\n📝 Raw: ${sig.raw}`
+        );
+        await delay(30000); // 30-second delay between signals
+      }
+    }
+
     console.log("✅ Scraper cycle complete.");
   } catch (err) {
     console.error("❌ Scraper error:", err.message);
-    await sendTelegramMessage(bot, `⚠️ Error fetching data. Check logs: ${err.message}`);
+    await sendTelegramMessage(bot, `⚠️ Error fetching signals. Check logs: ${err.message}`);
   } finally {
     scraperRunning = false;
+    firstRun = false; // 🔑 after the first cycle, this stays false
   }
 }
 
@@ -110,7 +128,7 @@ export function startBot(bot) {
       console.log("✅ Bot turned ON, starting scraper...");
       await bot.sendMessage(
         chatId,
-        `✅ Signal forwarding enabled! Fetching every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data`,
+        `✅ Signal forwarding enabled! Fetching every *${signalIntervalMinutes} minutes*.\n- 📊 Market Data\n- 📢 Live Chat Signals`,
         { parse_mode: "Markdown" }
       );
       runScraper(bot);
