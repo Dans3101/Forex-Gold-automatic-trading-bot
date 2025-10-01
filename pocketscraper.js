@@ -1,11 +1,32 @@
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
+import TelegramBot from "node-telegram-bot-api";
 
 const EMAIL = process.env.POCKET_EMAIL;
 const PASSWORD = process.env.POCKET_PASSWORD;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
 const NAV_TIMEOUT = 180000; // 3 minutes
 const MAX_RETRIES = 2;
 const ASSET_DELAY = 30000; // 30 seconds
+
+// Telegram Bot instance
+const bot = TELEGRAM_TOKEN ? new TelegramBot(TELEGRAM_TOKEN, { polling: false }) : null;
+
+/* ---------- Utility: Save & Send Screenshot ---------- */
+async function saveAndSendScreenshot(page, filename, caption = "") {
+  try {
+    await page.screenshot({ path: filename, fullPage: true });
+    console.log(`📸 Screenshot saved: ${filename}`);
+    if (bot && TELEGRAM_CHAT_ID) {
+      await bot.sendPhoto(TELEGRAM_CHAT_ID, filename, { caption });
+      console.log(`📤 Screenshot sent to Telegram: ${filename}`);
+    }
+  } catch (err) {
+    console.error("❌ Screenshot failed:", err.message);
+  }
+}
 
 /* ---------- Launch Puppeteer Browser ---------- */
 async function launchBrowser() {
@@ -58,7 +79,7 @@ async function loginAndGetPage(browser) {
     });
   } catch (err) {
     console.error("❌ Navigation to login failed:", err.message);
-    await page.screenshot({ path: "error_timeout.png", fullPage: true }).catch(() => {});
+    await saveAndSendScreenshot(page, "error_timeout.png", "❌ Navigation timeout when opening login page");
     throw err;
   }
 
@@ -82,17 +103,17 @@ async function loginAndGetPage(browser) {
     // Check if still stuck at login
     if (await page.$('input[name="email"], input[type="email"]')) {
       console.error("❌ Still on login page — login failed");
-      await page.screenshot({ path: "error_login.png", fullPage: true }).catch(() => {});
+      await saveAndSendScreenshot(page, "error_login.png", "❌ Login failed — check credentials or recaptcha");
       throw new Error("Login failed (credentials/recaptcha?)");
     }
 
     console.log("✅ Login successful!");
-    await page.screenshot({ path: "login_success.png", fullPage: true }).catch(() => {});
+    await saveAndSendScreenshot(page, "login_success.png", "✅ Login successful — dashboard loaded");
     return page;
 
   } catch (err) {
     console.error("❌ Login process failed:", err.message);
-    await page.screenshot({ path: "error_unexpected.png", fullPage: true }).catch(() => {});
+    await saveAndSendScreenshot(page, "error_unexpected.png", "❌ Unexpected error during login");
     throw err;
   }
 }
@@ -113,15 +134,22 @@ export async function getPocketData() {
 
       if (!assets.length) {
         console.warn("⚠️ No assets found");
-        await page.screenshot({ path: "error_no_assets.png", fullPage: true }).catch(() => {});
+        await saveAndSendScreenshot(page, "error_no_assets.png", "⚠️ No assets found on dashboard");
         return [];
       }
 
       const results = [];
-      for (const asset of assets) {
+      for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
         const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
         results.push({ asset, decision });
         console.log(`📌 Asset: ${asset}, Decision: ${decision}`);
+
+        // Only send screenshots for first & last asset (to avoid spam)
+        if (i === 0 || i === assets.length - 1) {
+          await saveAndSendScreenshot(page, `asset_${asset}.png`, `📊 Asset: ${asset}, Decision: ${decision}`);
+        }
+
         await new Promise(res => setTimeout(res, ASSET_DELAY));
       }
 
