@@ -51,12 +51,37 @@ async function loginAndGetPage(browser) {
   page.setDefaultTimeout(NAV_TIMEOUT);
 
   await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2", timeout: NAV_TIMEOUT });
-  await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
-  await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
-  await Promise.all([
-    page.click('button[type="submit"]'),
-    page.waitForNavigation({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT })
-  ]);
+
+  // 🔍 DEBUG: dump all form fields
+  const formHtml = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll("form")).map((form, idx) => {
+      return {
+        index: idx,
+        html: form.outerHTML
+      };
+    });
+  });
+  console.log("📄 Login forms found:", JSON.stringify(formHtml, null, 2));
+
+  // 🔍 DEBUG: dump full page HTML (⚠️ can be long!)
+  const fullHtml = await page.content();
+  console.log("📄 Full page HTML dump START ===");
+  console.log(fullHtml.substring(0, 5000)); // limit log to first 5000 chars
+  console.log("📄 Full page HTML dump END ===");
+
+  // Try filling credentials
+  try {
+    await page.type('input[name="email"], input[type="email"]', EMAIL, { delay: 80 });
+    await page.type('input[name="password"], input[type="password"]', PASSWORD, { delay: 80 });
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT })
+    ]);
+    console.log("✅ Login attempt complete");
+  } catch (err) {
+    console.error("❌ Login selectors failed:", err.message);
+    throw err;
+  }
 
   return page;
 }
@@ -73,7 +98,7 @@ export async function getPocketData() {
       const page = await loginAndGetPage(browser);
       const pageText = await page.evaluate(() => document.body?.innerText || "");
       const assetRE = /\b([A-Z]{3}\/[A-Z]{3}|[A-Z]{6}|[A-Z]{3,5}-[A-Z]{3,5})\b/g;
-      const assets = [...pageText.matchAll(assetRE)].map(m => m[1]).slice(0, 10); // limit to 10 assets per cycle
+      const assets = [...pageText.matchAll(assetRE)].map(m => m[1]).slice(0, 10);
 
       if (!assets.length) return [];
 
