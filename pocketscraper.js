@@ -42,7 +42,7 @@ async function launchBrowser() {
   return browser;
 }
 
-/* ---------- Try load cookies from cookies.json ---------- */
+/* ---------- Load cookies if available ---------- */
 async function tryLoadCookiesFromFile(page) {
   try {
     if (!fs.existsSync("./cookies.json")) {
@@ -83,7 +83,7 @@ async function loginAndGetPage(browser) {
     timeout: NAV_TIMEOUT,
   });
 
-  // Try cookies.json
+  // Try cookies.json first
   const loaded = await tryLoadCookiesFromFile(page);
   if (loaded) {
     await page.reload({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT }).catch(() => {});
@@ -96,7 +96,7 @@ async function loginAndGetPage(browser) {
     console.log("⚠️ Cookies invalid — falling back to email/password...");
   }
 
-  // If login form is present, fallback to EMAIL/PASSWORD
+  // Fallback to EMAIL/PASSWORD login
   if (EMAIL && PASSWORD) {
     console.log("🔍 Filling login form...");
     if (await page.$("#email")) await page.type("#email", EMAIL, { delay: 80 });
@@ -129,7 +129,7 @@ async function loginAndGetPage(browser) {
   }
 }
 
-/* ---------- Fetch market data ---------- */
+/* ---------- Fetch Market Data (Main Export) ---------- */
 export async function getPocketData() {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let browser;
@@ -150,7 +150,7 @@ export async function getPocketData() {
       const results = [];
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
-        const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
+        const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL"; // demo random
         results.push({ asset, decision });
         console.log(`📌 Asset: ${asset}, Decision: ${decision}`);
 
