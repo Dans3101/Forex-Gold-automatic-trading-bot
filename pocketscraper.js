@@ -9,6 +9,7 @@ const PASSWORD = process.env.POCKET_PASSWORD;
 const NAV_TIMEOUT = 180000; // 3 minutes
 const MAX_RETRIES = 2;
 const ASSET_DELAY = 30000; // 30 seconds
+const COOKIES_PATH = "./cookies.json";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -30,26 +31,28 @@ async function saveAndSendScreenshot(page, filename, caption = "") {
   }
 }
 
+/* ---------- Browser launcher ---------- */
 async function launchBrowser() {
+  const headlessMode = process.env.FIRST_RUN === "true" ? false : true;
   const browser = await puppeteer.launch({
     args: chromium.args,
     executablePath: await chromium.executablePath(),
-    headless: true,
+    headless: headlessMode,
     defaultViewport: chromium.defaultViewport,
     ignoreDefaultArgs: ["--disable-extensions"],
   });
-  console.log("✅ Puppeteer launched successfully");
+  console.log(`✅ Puppeteer launched (headless=${headlessMode})`);
   return browser;
 }
 
-/* ---------- Try load cookies from cookies.json ---------- */
+/* ---------- Load cookies.json if exists ---------- */
 async function tryLoadCookiesFromFile(page) {
   try {
-    if (!fs.existsSync("./cookies.json")) {
+    if (!fs.existsSync(COOKIES_PATH)) {
       console.log("⚠️ No cookies.json file found.");
       return false;
     }
-    const raw = fs.readFileSync("./cookies.json", "utf8");
+    const raw = fs.readFileSync(COOKIES_PATH, "utf8");
     const cookies = JSON.parse(raw);
 
     if (!Array.isArray(cookies) || cookies.length === 0) {
@@ -66,6 +69,17 @@ async function tryLoadCookiesFromFile(page) {
   }
 }
 
+/* ---------- Save cookies.json ---------- */
+async function saveCookies(page) {
+  try {
+    const cookies = await page.cookies();
+    fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookies, null, 2));
+    console.log("💾 Cookies saved to cookies.json");
+  } catch (err) {
+    console.error("❌ Failed to save cookies:", err.message);
+  }
+}
+
 /* ---------- Login & get authenticated page ---------- */
 async function loginAndGetPage(browser) {
   const page = await browser.newPage();
@@ -78,22 +92,31 @@ async function loginAndGetPage(browser) {
   console.log("🌐 Navigating to login page...");
   await page.goto("https://pocketoption.com/en/login/", { waitUntil: "networkidle2", timeout: NAV_TIMEOUT });
 
-  // Try cookies.json
+  // First try cookies.json
   const loaded = await tryLoadCookiesFromFile(page);
   if (loaded) {
     await page.reload({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT }).catch(() => {});
     const stillHasLogin = !!(await page.$("#email"));
     if (!stillHasLogin) {
       console.log("✅ Authenticated with cookies.json");
-      await saveAndSendScreenshot(page, "already_logged_in.png", "✅ Already authenticated (cookies.json)");
+      await saveAndSendScreenshot(page, "already_logged_in.png", "✅ Authenticated (cookies.json)");
       return page;
     }
     console.log("⚠️ Cookies invalid — falling back to email/password...");
   }
 
-  // If login form is present, fallback to EMAIL/PASSWORD
+  // Manual login case (FIRST_RUN=true)
+  if (process.env.FIRST_RUN === "true") {
+    console.log("🔑 Please log in manually (solve captcha if shown)...");
+    await page.waitForNavigation({ waitUntil: "networkidle2" }); // wait until user logs in
+    await saveCookies(page);
+    await saveAndSendScreenshot(page, "manual_login.png", "✅ Manual login complete, cookies saved");
+    return page;
+  }
+
+  // Email/password fallback
   if (EMAIL && PASSWORD) {
-    console.log("🔍 Filling login form...");
+    console.log("🔍 Filling login form with EMAIL/PASSWORD...");
     if (await page.$("#email")) await page.type("#email", EMAIL, { delay: 80 });
     if (await page.$("#password")) await page.type("#password", PASSWORD, { delay: 80 });
 
@@ -110,14 +133,10 @@ async function loginAndGetPage(browser) {
       throw new Error("Login failed — captcha or bad credentials");
     }
 
-    console.log("✅ Login successful");
-    await saveAndSendScreenshot(page, "login_success.png", "✅ Login successful (fallback to EMAIL/PASSWORD)");
+    console.log("✅ Login successful via EMAIL/PASSWORD");
+    await saveAndSendScreenshot(page, "login_success.png", "✅ Login successful (EMAIL/PASSWORD)");
 
-    // Save cookies for next time
-    const cookies = await page.cookies();
-    fs.writeFileSync("cookies.json", JSON.stringify(cookies, null, 2));
-    console.log("💾 New cookies saved to cookies.json");
-
+    await saveCookies(page);
     return page;
   } else {
     throw new Error("❌ No cookies.json and no EMAIL/PASSWORD provided.");
