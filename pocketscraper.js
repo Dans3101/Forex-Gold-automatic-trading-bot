@@ -13,10 +13,43 @@ const ASSET_DELAY = 30000; // 30 seconds
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-const bot = TELEGRAM_TOKEN ? new TelegramBot(TELEGRAM_TOKEN, { polling: false }) : null;
+const bot = TELEGRAM_TOKEN ? new TelegramBot(TELEGRAM_TOKEN, { polling: true }) : null;
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+/* ---------------- Save Telegram Uploaded cookies.json ---------------- */
+if (bot) {
+  bot.on("document", async (msg) => {
+    const chatId = msg.chat.id;
+    if (String(chatId) !== String(TELEGRAM_CHAT_ID)) {
+      return bot.sendMessage(chatId, "⚠️ You are not authorized to update cookies.");
+    }
+
+    const fileId = msg.document.file_id;
+    const fileName = msg.document.file_name;
+
+    if (!fileName.endsWith(".json")) {
+      return bot.sendMessage(chatId, "❌ Please upload a valid cookies.json file.");
+    }
+
+    try {
+      const file = await bot.getFile(fileId);
+      const url = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${file.file_path}`;
+
+      const response = await fetch(url);
+      const data = await response.text();
+
+      fs.writeFileSync("cookies.json", data);
+      console.log("💾 New cookies.json saved from Telegram upload.");
+      await bot.sendMessage(chatId, "✅ cookies.json updated successfully. Scraper will use these on next run.");
+    } catch (err) {
+      console.error("❌ Failed to save uploaded cookies:", err.message);
+      await bot.sendMessage(chatId, "❌ Failed to save uploaded cookies. Check logs.");
+    }
+  });
+}
+
+/* ---------------- Screenshot Helper ---------------- */
 async function saveAndSendScreenshot(page, filename, caption = "") {
   try {
     await page.screenshot({ path: filename, fullPage: true });
@@ -42,7 +75,7 @@ async function launchBrowser() {
   return browser;
 }
 
-/* ---------- Load cookies if available ---------- */
+/* ---------------- Try load cookies from cookies.json ---------------- */
 async function tryLoadCookiesFromFile(page) {
   try {
     if (!fs.existsSync("./cookies.json")) {
@@ -66,13 +99,13 @@ async function tryLoadCookiesFromFile(page) {
   }
 }
 
-/* ---------- Login & get authenticated page ---------- */
+/* ---------------- Login & get authenticated page ---------------- */
 async function loginAndGetPage(browser) {
   const page = await browser.newPage();
   page.setDefaultTimeout(NAV_TIMEOUT);
 
   await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116 Safari/537.36"
   );
   await page.setViewport({ width: 1366, height: 768 });
   await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
@@ -83,7 +116,7 @@ async function loginAndGetPage(browser) {
     timeout: NAV_TIMEOUT,
   });
 
-  // Try cookies.json first
+  // Try cookies.json
   const loaded = await tryLoadCookiesFromFile(page);
   if (loaded) {
     await page.reload({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT }).catch(() => {});
@@ -93,43 +126,14 @@ async function loginAndGetPage(browser) {
       await saveAndSendScreenshot(page, "already_logged_in.png", "✅ Already authenticated (cookies.json)");
       return page;
     }
-    console.log("⚠️ Cookies invalid — falling back to email/password...");
+    console.log("⚠️ Cookies invalid — fallback blocked by CAPTCHA.");
+    throw new Error("Cookies expired. Please upload new cookies.json via Telegram.");
   }
 
-  // Fallback to EMAIL/PASSWORD login
-  if (EMAIL && PASSWORD) {
-    console.log("🔍 Filling login form...");
-    if (await page.$("#email")) await page.type("#email", EMAIL, { delay: 80 });
-    if (await page.$("#password")) await page.type("#password", PASSWORD, { delay: 80 });
-
-    await Promise.all([
-      page.click("button[type='submit']").catch(() => {}),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: NAV_TIMEOUT }).catch(() => {
-        console.warn("⚠️ Navigation after login didn’t complete — maybe AJAX or captcha.");
-      }),
-    ]);
-
-    const stillHasLogin = !!(await page.$("#email"));
-    if (stillHasLogin) {
-      await saveAndSendScreenshot(page, "error_login.png", "❌ Login failed (captcha or bad credentials)");
-      throw new Error("Login failed — captcha or bad credentials");
-    }
-
-    console.log("✅ Login successful");
-    await saveAndSendScreenshot(page, "login_success.png", "✅ Login successful (fallback to EMAIL/PASSWORD)");
-
-    // Save cookies for next time
-    const cookies = await page.cookies();
-    fs.writeFileSync("cookies.json", JSON.stringify(cookies, null, 2));
-    console.log("💾 New cookies saved to cookies.json");
-
-    return page;
-  } else {
-    throw new Error("❌ No cookies.json and no EMAIL/PASSWORD provided.");
-  }
+  throw new Error("❌ No cookies.json found. Upload one via Telegram to continue.");
 }
 
-/* ---------- Fetch Market Data (Main Export) ---------- */
+/* ---------------- Fetch market data ---------------- */
 export async function getPocketData() {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let browser;
@@ -150,7 +154,7 @@ export async function getPocketData() {
       const results = [];
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
-        const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL"; // demo random
+        const decision = Math.random() > 0.5 ? "⬆️ BUY" : "⬇️ SELL";
         results.push({ asset, decision });
         console.log(`📌 Asset: ${asset}, Decision: ${decision}`);
 
