@@ -1,108 +1,33 @@
-// strategy.js
-import axios from "axios";
-import { RSI, EMA, MACD } from "technicalindicators";
+// strategies.js
+// Safer strategies for XAUUSD
 
-/**
- * Fetch recent 1m candles from Binance (no API key required)
- * @param {string} symbol - e.g. "BTCUSDT"
- * @param {number} limit - max 1000
- */
-export async function fetchCandlesBinance(symbol = "BTCUSDT", limit = 250) {
-  const url = "https://api.binance.com/api/v3/klines";
-  const params = { symbol, interval: "1m", limit };
-  const resp = await axios.get(url, { params, timeout: 10000 });
-  return resp.data.map((k) => ({
-    openTime: k[0],
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-    volume: parseFloat(k[5]),
-    closeTime: k[6],
-  }));
+// Moving Average Strategy (5 vs 20 period crossover)
+export function movingAverageStrategy(prices) {
+  const shortMA = prices.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+  const longMA = prices.slice(0, 20).reduce((a, b) => a + b, 0) / 20;
+
+  if (shortMA > longMA) return "buy";
+  if (shortMA < longMA) return "sell";
+  return "wait";
 }
 
-/**
- * Compute RSI, EMA10, EMA25, MACD
- */
-export function computeIndicators(closes) {
-  if (!closes || closes.length < 50) return null;
+// Breakout Strategy (support/resistance levels)
+export function breakoutStrategy(prices) {
+  const recentHigh = Math.max(...prices.slice(0, 20));  // last 20 candles
+  const recentLow = Math.min(...prices.slice(0, 20));
+  const currentPrice = prices[0];
 
-  const rsiArr = RSI.calculate({ values: closes, period: 14 });
-  const ema10 = EMA.calculate({ values: closes, period: 10 });
-  const ema25 = EMA.calculate({ values: closes, period: 25 });
-
-  const macdArr = MACD.calculate({
-    values: closes,
-    fastPeriod: 12,
-    slowPeriod: 26,
-    signalPeriod: 9,
-    SimpleMAOscillator: false,
-    SimpleMASignal: false,
-  });
-
-  return {
-    rsi: rsiArr.at(-1),
-    ema10: ema10.at(-1),
-    ema25: ema25.at(-1),
-    prevEma10: ema10.at(-2),
-    prevEma25: ema25.at(-2),
-    macd: macdArr.at(-1)?.MACD,
-    macdSignal: macdArr.at(-1)?.signal,
-    prevMacd: macdArr.at(-2)?.MACD,
-    prevMacdSignal: macdArr.at(-2)?.signal,
-  };
+  if (currentPrice > recentHigh) return "buy";   // breakout above resistance
+  if (currentPrice < recentLow) return "sell";   // breakout below support
+  return "wait";
 }
 
-/**
- * Decide trading signal
- */
-export function decideSignal(ind) {
-  if (!ind) return { side: null, reasons: [] };
-  const reasons = [];
+// Combine strategies
+export function combinedStrategy(data) {
+  const maSignal = movingAverageStrategy(data.prices);
+  const breakoutSignal = breakoutStrategy(data.prices);
 
-  // RSI
-  if (ind.rsi < 30) reasons.push("RSI oversold (<30)");
-  if (ind.rsi > 70) reasons.push("RSI overbought (>70)");
-
-  // EMA cross
-  if (ind.prevEma10 < ind.prevEma25 && ind.ema10 > ind.ema25)
-    reasons.push("Bullish EMA10/25 cross");
-  if (ind.prevEma10 > ind.prevEma25 && ind.ema10 < ind.ema25)
-    reasons.push("Bearish EMA10/25 cross");
-
-  // MACD cross
-  if (ind.prevMacd < ind.prevMacdSignal && ind.macd > ind.macdSignal)
-    reasons.push("Bullish MACD cross");
-  if (ind.prevMacd > ind.prevMacdSignal && ind.macd < ind.macdSignal)
-    reasons.push("Bearish MACD cross");
-
-  const bull = reasons.filter((r) =>
-    r.toLowerCase().includes("bull") || r.toLowerCase().includes("oversold")
-  ).length;
-  const bear = reasons.filter((r) =>
-    r.toLowerCase().includes("bear") || r.toLowerCase().includes("overbought")
-  ).length;
-
-  let side = null;
-  if (bull >= 2 && bear === 0) side = "BUY ⬆️";
-  if (bear >= 2 && bull === 0) side = "SELL ⬇️";
-
-  return { side, reasons };
-}
-
-/**
- * Generate a full signal message
- */
-export function formatSignal(symbol, price, signal) {
-  if (!signal.side) {
-    return `⚠️ ${symbol}\nNo strong signal right now.\nLatest price: ${price}`;
-  }
-
-  return (
-    `📊 ${symbol} Signal\n` +
-    `Price: ${price}\n` +
-    `Action: ${signal.side}\n\n` +
-    `Reasons:\n- ${signal.reasons.join("\n- ")}`
-  );
+  if (maSignal === "buy" && breakoutSignal === "buy") return "buy";
+  if (maSignal === "sell" && breakoutSignal === "sell") return "sell";
+  return "wait";
 }
