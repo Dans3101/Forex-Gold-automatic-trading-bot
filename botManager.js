@@ -1,142 +1,67 @@
-import { telegramChatId, signalIntervalMinutes } from "./config.js";
-import { getPocketData } from "./pocketscraper.js"; // 🚨 removed getPocketSignals
+// botManager.js
+import { config, updateConfig, formatConfig } from "./config.js";
+import { startExnessBot, stopExnessBot } from "./exnessBot.js";
 
-console.log("🚀 Telegram Bot Manager loaded...");
-console.log("👥 Configured Chat ID:", telegramChatId || "❌ Not set");
+let botRunning = false;
 
-let isBotOn = false;
-let scraperRunning = false;
-const knownChats = new Set();
-let scraperInterval = null;
-let firstRun = true;
+function startBot(bot) {
+  console.log("🚀 Telegram Bot Manager loaded...");
 
-/* ---------- Safe Telegram Send ---------- */
-export async function sendTelegramMessage(bot, text) {
-  if (!telegramChatId) return console.warn("⚠️ TELEGRAM_CHAT_ID missing:", text);
-  try {
-    await bot.sendMessage(telegramChatId, text, { parse_mode: "Markdown" });
-    console.log("📤 Sent to Telegram:", text);
-  } catch (err) {
-    console.error("❌ Telegram send failed:", err.message);
-  }
-}
-
-/* ---------- Delay Helper ---------- */
-function delay(ms) {
-  return new Promise(res => setTimeout(res, ms));
-}
-
-/* ---------- Scraper Wrapper with Retry ---------- */
-async function fetchWithRetry(bot, fetchFunction, type) {
-  const maxRetries = 3;
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await fetchFunction();
-      if (attempt > 1) await sendTelegramMessage(bot, `✅ ${type} succeeded on retry #${attempt}`);
-      return result;
-    } catch (err) {
-      console.error(`❌ ${type} failed (attempt #${attempt}):`, err.message);
-      await sendTelegramMessage(bot, `🔁 ${type} failed attempt #${attempt}. Retrying...`);
-      if (attempt === maxRetries) {
-        await sendTelegramMessage(bot, `❌ ${type} failed after ${maxRetries} retries. Check logs.`);
-        return [];
-      }
+  bot.onText(/\.start/, async (msg) => {
+    if (botRunning) {
+      await bot.sendMessage(msg.chat.id, "⚠️ Bot is already running.");
+      return;
     }
-  }
-}
-
-/* ---------- Run One Scraper Cycle ---------- */
-async function runScraper(bot) {
-  if (scraperRunning) {
-    console.log("⏳ Scraper already running, skipping...");
-    return;
-  }
-
-  scraperRunning = true;
-  try {
-    console.log("🔍 Running market data scraper...");
-
-    // --- Market Data ---
-    const data = await fetchWithRetry(bot, getPocketData, "Market Data");
-    if (data.length === 0) {
-      console.log("ℹ️ No market data this cycle.");
-      if (!firstRun) await sendTelegramMessage(bot, "ℹ️ No market data this cycle.");
-    } else {
-      console.log("📊 Market Data:", data);
-      for (const d of data) {
-        await sendTelegramMessage(bot, `📊 *Market Data*\nAsset: *${d.asset}*\nDecision: *${d.decision}*`);
-        await delay(30000);
-      }
-    }
-
-    console.log("✅ Scraper cycle complete.");
-  } catch (err) {
-    console.error("❌ Scraper error:", err.message);
-    await sendTelegramMessage(bot, `⚠️ Error fetching market data: ${err.message}`);
-  } finally {
-    scraperRunning = false;
-    firstRun = false;
-  }
-}
-
-/* ---------- Start Bot ---------- */
-export function startBot(bot) {
-  if (!bot) return console.error("❌ No bot instance passed into startBot()");
-
-  bot.on("message", async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text?.trim().toLowerCase();
-    console.log(`💬 Message from ${chatId}: ${text}`);
-
-    // --- Auto-send Chat ID ---
-    if (!knownChats.has(chatId)) {
-      knownChats.add(chatId);
-      await bot.sendMessage(
-        chatId,
-        `👋 Hello! Your Chat ID is: \`${chatId}\`\nSave this ID in your .env as *TELEGRAM_CHAT_ID* to receive signals.`,
-        { parse_mode: "Markdown" }
-      );
-    }
-
-    // --- /id command ---
-    if (text === "/id") return bot.sendMessage(chatId, `🆔 Your Chat ID: \`${chatId}\``, { parse_mode: "Markdown" });
-
-    // --- Restrict unauthorized ---
-    if (telegramChatId && String(chatId) !== String(telegramChatId)) {
-      return bot.sendMessage(chatId, "⚠️ You are not authorized to control this bot.");
-    }
-
-    // --- Commands ---
-    if (text === ".on" && !isBotOn) {
-      isBotOn = true;
-      console.log("✅ Bot ON, starting scraper...");
-      await bot.sendMessage(
-        chatId,
-        `✅ Signal forwarding enabled!\nFetching market data every *${signalIntervalMinutes} minutes*`,
-        { parse_mode: "Markdown" }
-      );
-      runScraper(bot);
-      scraperInterval = setInterval(() => runScraper(bot), signalIntervalMinutes * 60 * 1000);
-    } else if (text === ".off" && isBotOn) {
-      isBotOn = false;
-      console.log("⛔ Bot OFF, stopping scraper...");
-      await bot.sendMessage(chatId, "⛔ Signal forwarding disabled.");
-      if (scraperInterval) {
-        clearInterval(scraperInterval);
-        scraperInterval = null;
-      }
-    } else if (text !== ".on" && text !== ".off") {
-      await bot.sendMessage(chatId, `🤖 I received: "${msg.text}"`);
-    }
+    botRunning = true;
+    startExnessBot(bot, msg.chat.id);
+    await bot.sendMessage(msg.chat.id, "✅ Bot started.");
   });
 
-  // --- Auto-start scraper on deploy ---
-  if (!isBotOn) {
-    isBotOn = true;
-    console.log("⚡ Auto-start scraper after deploy...");
-    runScraper(bot);
-    scraperInterval = setInterval(() => runScraper(bot), signalIntervalMinutes * 60 * 1000);
-  }
+  bot.onText(/\.stop/, async (msg) => {
+    if (!botRunning) {
+      await bot.sendMessage(msg.chat.id, "⚠️ Bot is not running.");
+      return;
+    }
+    botRunning = false;
+    stopExnessBot();
+    await bot.sendMessage(msg.chat.id, "🛑 Bot stopped.");
+  });
 
-  return { isBotOn: () => isBotOn };
+  // Show current settings
+  bot.onText(/\.showconfig/, async (msg) => {
+    await bot.sendMessage(msg.chat.id, formatConfig(), { parse_mode: "Markdown" });
+  });
+
+  // Set a config value -> .set key value
+  bot.onText(/\.set (\w+) (.+)/, async (msg, match) => {
+    const key = match[1];
+    let value = match[2];
+
+    // Convert numbers if possible
+    if (!isNaN(value)) {
+      value = Number(value);
+    }
+
+    const result = updateConfig(key, value);
+    await bot.sendMessage(msg.chat.id, result, { parse_mode: "Markdown" });
+
+    // Show updated config
+    await bot.sendMessage(msg.chat.id, formatConfig(), { parse_mode: "Markdown" });
+  });
+
+  // Help menu
+  bot.onText(/\.help/, async (msg) => {
+    const helpText = `
+🤖 *Bot Commands*
+
+- .start → Start trading
+- .stop → Stop trading
+- .showconfig → Show current bot settings
+- .set key value → Update setting (example: .set stopLoss 25)
+- .help → Show this menu
+`;
+    await bot.sendMessage(msg.chat.id, helpText, { parse_mode: "Markdown" });
+  });
 }
+
+export { startBot };
