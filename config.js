@@ -1,30 +1,45 @@
 // config.js
+// ✅ Central configuration for Exness Bot
 
-// =========================
-// 📌 Telegram Bot Settings
-// =========================
-export const telegramToken = process.env.TELEGRAM_TOKEN || "";     
-// Your BotFather token
+let config = {
+  tradeAmount: 10,           // % of balance per trade (default 10%)
+  maxTradesPerDay: 20,       // Maximum trades allowed per day
+  stopLoss: 20,              // Stop loss in % (max account loss before stop)
+  takeProfit: 200,           // Take profit in % (target profit before stop)
+  strategy: "movingaverage", // Default strategy
+  symbol: "XAUUSD",          // Default trading pair
+  lotSize: 0.01,             // Default lot size
+  leverage: 100,             // Default leverage
+};
 
-export const telegramChatId = process.env.TELEGRAM_CHAT_ID || "";  
-// Telegram user ID, group ID, or channel ID where signals should be sent
+// ✅ Update a setting dynamically
+function updateConfig(key, value) {
+  if (config.hasOwnProperty(key)) {
+    config[key] = value;
+    return `✅ Updated *${key}* to *${value}*`;
+  }
+  return `⚠️ Setting *${key}* not found. Use .showconfig to see options.`;
+}
 
+// ✅ Get current config
+function getConfig() {
+  return config;
+}
 
-// =========================
-// 📌 Pocket Option Login (for scraper)
-// =========================
-export const email = process.env.POCKET_EMAIL || "";       
-// Pocket Option account email (leave blank if no login required)
+// ✅ Display config nicely for Telegram
+function formatConfig() {
+  return `
+⚙️ *Current Bot Settings* ⚙️
 
-export const password = process.env.POCKET_PASSWORD || ""; 
-// Pocket Option account password (leave blank if no login required)
+- Trade Amount: ${config.tradeAmount}%
+- Max Trades/Day: ${config.maxTradesPerDay}
+- Stop Loss: ${config.stopLoss}%
+- Take Profit: ${config.takeProfit}%
+- Strategy: ${config.strategy}
+- Symbol: ${config.symbol}
+- Lot Size: ${config.lotSize}
+- Leverage: ${config.leverage}x
+`;
+}
 
-
-// =========================
-// 📌 Bot Signal Settings
-// =========================
-export const signalIntervalMinutes = Number(process.env.SIGNAL_INTERVAL) || 5; 
-// How often (in minutes) to run Pocket Option scraping. Default = 5 minutes
-
-export const decisionDelaySeconds = Number(process.env.DECISION_DELAY) || 30;  
-// Delay before sending TradingView decisions (used in botManager.js)
+export { config, updateConfig, getConfig, formatConfig };
