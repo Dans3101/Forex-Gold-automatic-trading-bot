@@ -1,5 +1,6 @@
 // exnessBot.js
 import MetaApi from "metaapi.cloud-sdk";
+import { combinedStrategy } from "./strategies.js";
 
 const login = process.env.EXNESS_LOGIN;
 const password = process.env.EXNESS_PASSWORD;
@@ -8,12 +9,10 @@ const token = process.env.METAAPI_TOKEN;
 
 let account, connection;
 
-// ✅ Start Exness bot
 export async function startExnessBot(bot) {
   try {
     const api = new MetaApi(token);
 
-    // Create connection with Exness account
     account = await api.metatraderAccountApi.createAccount({
       name: "Exness-Demo-Bot",
       type: "cloud",
@@ -28,46 +27,43 @@ export async function startExnessBot(bot) {
 
     console.log("📡 Connected to Exness MT5 via MetaApi");
 
-    // Telegram command handlers
-    bot.onText(/^\.buy$/, async (msg) => {
+    // Telegram command: run strategy manually
+    bot.onText(/^\.strategy$/, async (msg) => {
       const chatId = msg.chat.id;
       try {
-        const trade = await connection.createMarketBuyOrder("XAUUSD", 0.01);
-        bot.sendMessage(chatId, `✅ BUY order placed\nID: ${trade.id}`);
-      } catch (err) {
-        bot.sendMessage(chatId, `❌ Failed to place BUY: ${err.message}`);
-      }
-    });
+        const candles = await connection.getCandles("XAUUSD", "M1", 50); // last 50 candles
+        const prices = candles.map(c => c.close).reverse();
+        const rsi = calculateRSI(prices, 14);
 
-    bot.onText(/^\.sell$/, async (msg) => {
-      const chatId = msg.chat.id;
-      try {
-        const trade = await connection.createMarketSellOrder("XAUUSD", 0.01);
-        bot.sendMessage(chatId, `✅ SELL order placed\nID: ${trade.id}`);
-      } catch (err) {
-        bot.sendMessage(chatId, `❌ Failed to place SELL: ${err.message}`);
-      }
-    });
+        const signal = combinedStrategy({ prices, rsi });
 
-    bot.onText(/^\.status$/, async (msg) => {
-      const chatId = msg.chat.id;
-      try {
-        const orders = await connection.getPositions();
-        let message = "📊 Bot Status\n";
-        if (!orders || orders.length === 0) {
-          message += "No open positions.";
+        if (signal === "buy") {
+          await connection.createMarketBuyOrder("XAUUSD", 0.01);
+          bot.sendMessage(chatId, "📈 Strategy triggered → BUY XAUUSD");
+        } else if (signal === "sell") {
+          await connection.createMarketSellOrder("XAUUSD", 0.01);
+          bot.sendMessage(chatId, "📉 Strategy triggered → SELL XAUUSD");
         } else {
-          orders.forEach((pos, i) => {
-            message += `#${i + 1} ${pos.type} ${pos.symbol} Vol: ${pos.volume}, Profit: ${pos.unrealizedProfit}\n`;
-          });
+          bot.sendMessage(chatId, "⏸ Strategy says WAIT (no trade)");
         }
-        bot.sendMessage(chatId, message);
       } catch (err) {
-        bot.sendMessage(chatId, `❌ Failed to fetch status: ${err.message}`);
+        bot.sendMessage(chatId, `❌ Strategy error: ${err.message}`);
       }
     });
 
   } catch (err) {
     console.error("❌ Exness bot failed to start:", err.message);
   }
+}
+
+/* --- Utility Functions --- */
+function calculateRSI(prices, period = 14) {
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = prices[i - 1] - prices[i];
+    if (diff > 0) gains += diff;
+    else losses -= diff;
+  }
+  const rs = gains / (losses || 1);
+  return 100 - (100 / (1 + rs));
 }
