@@ -1,39 +1,44 @@
-# Pocket-option-trading-bot
-Pocket option  trading  bot 2025 edition 
-# Pocket Signals Bot (No Auto-Trading)
+<p align="center">
+  <img src="https://i.ibb.co/3p3wD5d/exness-bot-banner.png" alt="Exness Bot Banner" width="800"/>
+</p>
 
-This bot **does not** place trades. It fetches public market data (Binance), computes **RSI + EMA crossover + MACD** signals, and writes them to a **Google Sheet**.
+<h1 align="center">
+  <marquee behavior="alternate" scrollamount="6">
+    🤖 Exness Forex Telegram Bot 🚀
+  </marquee>
+</h1>
 
-## Columns (Sheet1)
-`Timestamp | Asset | Interval | Close | Signal | Reasons | RSI | MACD | MACD_Signal | EMA10 | EMA25`
+<p align="center">
+  A fully automated <b>Forex Trading Bot</b> connected with <b>Exness MT5</b>, controllable via <b>Telegram</b>.  
+  Manage your trades, lot size, stop loss, and take profit directly from your phone! 📱💹
+</p>
 
-## Setup
+---
 
-### 1) Google Sheet
-- Create a sheet and share it with your **service account** email (Editor).
-- Copy the **Sheet ID** (from the URL).
+## ✨ Features
+- 📊 **Auto-Trading** using built-in strategies  
+- 🎯 **Take Profit in USD (fixed value)**  
+- 🛑 **Stop Loss in % of balance**  
+- 📐 **Adjustable Lot Size (0.01 – 10)**  
+- 💰 **Custom Trade Amount (% of balance)**  
+- 🔔 Telegram notifications for all trades  
+- ⏱ Detects **Market Open/Closed** (no trades on weekends)  
+- 🖥 Runs locally or on **Render/Heroku** with webhook support  
 
-### 2) Service Account
-- Create a GCP service account and download credentials JSON.
-- **Recommended:** Convert the whole JSON to a single line and set it as Heroku Config Var:
-  - Key: `GCP_SERVICE_ACCOUNT_JSON`
-  - Value: contents of the JSON file
-- Alternatively (less safe), upload `credentials.json` into the repo.
+---
 
-### 3) Heroku Deploy
-- Add buildpack: **heroku/python**
-- Config Vars:
-  - `SHEET_ID` = `<your sheet id>`
-  - `ASSET` = `BTCUSDT` (default)
-  - `INTERVAL` = `1m` (or `5m`)
-  - `CANDLES` = `200`
-  - `GCP_SERVICE_ACCOUNT_JSON` = `<paste JSON blob>` (recommended)
+## 🖼️ Screenshots
 
-### 4) Run
-- `worker: python main.py` (Procfile included)
-- Option A: Add **Heroku Scheduler** (every 1 or 5 minutes).
-- Option B: Manually run the dyno.
+<p align="center">
+  <img src="https://i.ibb.co/N7Cw2hC/telegram-demo.png" width="400" />
+  <img src="https://i.ibb.co/qNCb1M5/exness-dashboard.png" width="400" />
+</p>
 
-## Notes
-- Educational only. Signals are not financial advice.
-- No interaction with Pocket Option or any broker API.
+---
+
+## ⚙️ Installation & Setup
+
+### 1️⃣ Clone the repository
+```bash
+git clone https://github.com/your-username/exness-telegram-bot.git
+cd exness-telegram-bot
