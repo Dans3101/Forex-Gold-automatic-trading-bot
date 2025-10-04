@@ -30,11 +30,10 @@ bot.setMyCommands([
   { command: "/exstart", description: "Start Exness trading bot" },
   { command: "/exstop", description: "Stop Exness trading bot" },
   { command: "/config", description: "Show current bot config" },
-  { command: "/setstrategy", description: "Choose trading strategy" },
   { command: "/setasset", description: "Select trading asset" },
-  { command: "/setamount", description: "Set trade amount (%)" },
-  { command: "/setsl", description: "Set Stop Loss (%)" },
-  { command: "/settp", description: "Set Take Profit (%)" }
+  { command: "/setlot", description: "Set lot size (0.01–10)" },
+  { command: "/setsl", description: "Set Stop Loss (price)" },
+  { command: "/settp", description: "Set Take Profit (price)" }
 ]);
 
 // ✅ Start message with inline buttons
@@ -55,11 +54,10 @@ bot.onText(/\/start/, (msg) => {
             { text: "⚙ Show Config", callback_data: "config" }
           ],
           [
-            { text: "📊 Set Strategy", callback_data: "setstrategy" },
-            { text: "💰 Set Asset", callback_data: "setasset" }
+            { text: "💰 Set Asset", callback_data: "setasset" },
+            { text: "📊 Set Lot Size", callback_data: "setlot" }
           ],
           [
-            { text: "💵 Set Amount", callback_data: "setamount" },
             { text: "🛑 Set StopLoss", callback_data: "setsl" },
             { text: "🎯 Set TakeProfit", callback_data: "settp" }
           ]
@@ -86,33 +84,29 @@ bot.on("callback_query", (query) => {
       break;
 
     case "config":
-      const { tradeAmount, strategy, stopLoss, takeProfit, asset } = config;
+      const { lotSize, stopLoss, takeProfit, asset } = config;
       bot.sendMessage(
         chatId,
         `⚙️ *Current Bot Config:*\n\n` +
-        `Strategy: *${strategy}*\nAsset: *${asset}*\nTrade Amount: *${tradeAmount}%*\nStop Loss: *${stopLoss}%*\nTake Profit: *${takeProfit}%*`,
+        `Asset: *${asset}*\nLot Size: *${lotSize}*\nStop Loss: *${stopLoss}*\nTake Profit: *${takeProfit}*`,
         { parse_mode: "Markdown" }
       );
-      break;
-
-    case "setstrategy":
-      bot.sendMessage(chatId, "📊 Please send the strategy name you want to use.");
       break;
 
     case "setasset":
       bot.sendMessage(chatId, "💰 Please send the asset (e.g., XAUUSD).");
       break;
 
-    case "setamount":
-      bot.sendMessage(chatId, "💵 Please send the trade amount (%) you want to use.");
+    case "setlot":
+      bot.sendMessage(chatId, "📊 Please send the lot size (0.01 – 10).");
       break;
 
     case "setsl":
-      bot.sendMessage(chatId, "🛑 Please send the Stop Loss (%) value.");
+      bot.sendMessage(chatId, "🛑 Please send the Stop Loss (exact price).");
       break;
 
     case "settp":
-      bot.sendMessage(chatId, "🎯 Please send the Take Profit (%) value.");
+      bot.sendMessage(chatId, "🎯 Please send the Take Profit (exact price).");
       break;
 
     default:
@@ -122,7 +116,7 @@ bot.on("callback_query", (query) => {
   bot.answerCallbackQuery(query.id); // remove loading spinner
 });
 
-// ✅ Inline keyboards for strategies & assets from exnessBot.js
+// ✅ Inline keyboards / extended handlers (in exnessBot.js)
 setupTelegramHandlers(bot, telegramChatId);
 
 // ✅ Webhook endpoint for Render
