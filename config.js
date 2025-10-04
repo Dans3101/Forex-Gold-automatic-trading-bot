@@ -4,11 +4,13 @@ dotenv.config();
 
 // ✅ Trading config
 const config = {
-  tradeAmount: 10,              // % of balance per trade
-  strategy: "movingAverage",    // default strategy
+  tradeAmount: 10,              // % of balance per trade (default)
+  lotSize: 0.1,                 // Adjustable lot size (default: 0.1, range: 0.01 - 10)
+  strategy: "movingAverage",    // Default strategy
   stopLoss: 20,                 // % loss before stopping
-  takeProfit: 200,              // % profit before stopping
-  asset: "XAUUSD",              // default asset
+  takeProfit: 100,              // Fixed profit target in USD
+  asset: "XAUUSD",              // Default asset
+  marketOpen: true              // Flag to show if market is open (to be updated dynamically)
 };
 
 // ✅ Telegram bot settings
