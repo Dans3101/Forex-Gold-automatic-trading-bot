@@ -1,21 +1,26 @@
-export const config = {
-  // --- Telegram Bot ---
-  telegramToken: process.env.TELEGRAM_TOKEN, // from BotFather
-  telegramChatId: process.env.TELEGRAM_CHAT_ID, // your chat ID
+// config.js
+import dotenv from "dotenv";
+dotenv.config();
 
-  // --- Exness Login ---
+// ✅ Trading config
+const config = {
+  tradeAmount: 10,              // % of balance per trade
+  strategy: "movingAverage",    // default strategy
+  stopLoss: 20,                 // % loss before stopping
+  takeProfit: 200,              // % profit before stopping
+  asset: "XAUUSD",              // default asset
+};
+
+// ✅ Telegram bot settings
+const telegramToken = process.env.TELEGRAM_TOKEN;
+const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+
+// ✅ Exness login details
+const exness = {
   loginId: process.env.EXNESS_LOGIN_ID,
   password: process.env.EXNESS_PASSWORD,
-  server: process.env.EXNESS_SERVER, // e.g., "Exness-MT5Trial"
-
-  // --- Trading Settings ---
-  symbol: "XAUUSD", // default instrument
-  lotSize: 0.1, // adjust position size
-  strategy: "multi", // default: multi strategy
-  strategies: ["sma", "ema", "bollinger", "macd"], // used only if strategy = multi
-  autoTrading: false, // 🛑 start with auto-trading OFF
-
-  // --- Risk Management ---
-  stopLoss: -200,   // stop if loss hits -200 USD
-  takeProfit: 400,  // stop if profit hits +400 USD
+  server: process.env.EXNESS_SERVER,   // e.g. "Exness-MT5Trial"
 };
+
+// ✅ Export everything
+export { config, telegramToken, telegramChatId, exness };
