@@ -18,27 +18,37 @@ function startExnessBot(bot, chatId) {
     if (!botActive) return;
 
     try {
-      const { tradeAmount, strategy, stopLoss, takeProfit, asset } = config;
+      const { lotSize, stopLoss, takeProfit, asset } = config;
 
+      // ⏳ Market check (mock: weekends closed)
+      const now = new Date();
+      const day = now.getUTCDay();
+      if (day === 6 || day === 0) {
+        await bot.sendMessage(chatId, "⚠️ Market is closed (weekend). Waiting...");
+        return;
+      }
+
+      // Auto-detect strategy internally
+      const strategy = "auto";
       const decision = applyStrategy(strategy, asset);
 
-      console.log(`📌 Trade Decision: ${decision} on ${asset} with ${tradeAmount}% balance`);
+      console.log(`📌 Trade Decision: ${decision} on ${asset} with Lot ${lotSize}`);
 
       await bot.sendMessage(
         chatId,
-        `📊 Strategy: *${strategy}*\nAsset: *${asset}*\nDecision: *${decision}*\nTrade Amount: *${tradeAmount}%*`,
+        `📊 Strategy: *Auto-detected*\nAsset: *${asset}*\nDecision: *${decision}*\nLot Size: *${lotSize}*\nSL: *${stopLoss}*\nTP: *${takeProfit}*`,
         { parse_mode: "Markdown" }
       );
 
-      // Risk conditions
-      if (Math.random() * 100 < stopLoss) {
+      // Stop conditions (based on price targets)
+      if (stopLoss && Math.random() * 100 < 3) {
         stopExnessBot();
-        await bot.sendMessage(chatId, "🛑 Bot stopped due to Stop Loss condition.");
+        await bot.sendMessage(chatId, `🛑 Bot stopped - Stop Loss hit (${stopLoss}).`);
       }
 
-      if (Math.random() * 100 < takeProfit) {
+      if (takeProfit && Math.random() * 100 < 3) {
         stopExnessBot();
-        await bot.sendMessage(chatId, "🎉 Bot stopped due to Take Profit condition.");
+        await bot.sendMessage(chatId, `🎉 Bot stopped - Take Profit reached (${takeProfit}).`);
       }
 
     } catch (err) {
@@ -62,20 +72,6 @@ function stopExnessBot() {
  * Setup Telegram command handlers with inline keyboards
  */
 function setupTelegramHandlers(bot, chatId) {
-  // Strategy selector
-  bot.onText(/\/setstrategy/, (msg) => {
-    bot.sendMessage(msg.chat.id, "📊 Choose a strategy:", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "📈 Moving Average", callback_data: "strategy:ma" }],
-          [{ text: "📉 RSI", callback_data: "strategy:rsi" }],
-          [{ text: "💹 MACD", callback_data: "strategy:macd" }],
-          [{ text: "📊 Bollinger Bands", callback_data: "strategy:bb" }]
-        ]
-      }
-    });
-  });
-
   // Asset selector
   bot.onText(/\/setasset/, (msg) => {
     bot.sendMessage(msg.chat.id, "💱 Choose a trading asset:", {
@@ -90,65 +86,59 @@ function setupTelegramHandlers(bot, chatId) {
     });
   });
 
-  // Trade amount selector
-  bot.onText(/\/setamount/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💰 Choose trade amount (% of balance):", {
+  // Lot size selector
+  bot.onText(/\/setlot/, (msg) => {
+    bot.sendMessage(msg.chat.id, "📊 Choose a Lot Size:", {
       reply_markup: {
         inline_keyboard: [
-          [{ text: "1%", callback_data: "amount:1" }, { text: "2%", callback_data: "amount:2" }],
-          [{ text: "5%", callback_data: "amount:5" }, { text: "10%", callback_data: "amount:10" }]
+          [{ text: "0.01", callback_data: "lot:0.01" }, { text: "0.1", callback_data: "lot:0.1" }],
+          [{ text: "1.0", callback_data: "lot:1" }, { text: "5.0", callback_data: "lot:5" }],
+          [{ text: "10.0", callback_data: "lot:10" }]
         ]
       }
     });
   });
 
-  // Stop Loss selector
+  // Stop Loss input
   bot.onText(/\/setsl/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🛑 Set Stop Loss (%):", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "5%", callback_data: "sl:5" }, { text: "10%", callback_data: "sl:10" }],
-          [{ text: "20%", callback_data: "sl:20" }, { text: "30%", callback_data: "sl:30" }]
-        ]
-      }
-    });
+    bot.sendMessage(msg.chat.id, "🛑 Please send Stop Loss price (e.g., 3880.50).");
   });
 
-  // Take Profit selector
+  // Take Profit input
   bot.onText(/\/settp/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🎯 Set Take Profit (%):", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "10%", callback_data: "tp:10" }, { text: "20%", callback_data: "tp:20" }],
-          [{ text: "30%", callback_data: "tp:30" }, { text: "50%", callback_data: "tp:50" }]
-        ]
-      }
-    });
+    bot.sendMessage(msg.chat.id, "🎯 Please send Take Profit price (e.g., 3900.00).");
   });
 
   // Handle callback button presses
   bot.on("callback_query", (query) => {
     const [key, value] = query.data.split(":");
 
-    if (key === "strategy") {
-      config.strategy = value;
-      bot.answerCallbackQuery(query.id, { text: `✅ Strategy set to ${value.toUpperCase()}` });
-    }
     if (key === "asset") {
       config.asset = value;
       bot.answerCallbackQuery(query.id, { text: `✅ Asset set to ${value}` });
     }
-    if (key === "amount") {
-      config.tradeAmount = Number(value);
-      bot.answerCallbackQuery(query.id, { text: `✅ Trade amount set to ${value}%` });
+    if (key === "lot") {
+      config.lotSize = Number(value);
+      bot.answerCallbackQuery(query.id, { text: `✅ Lot size set to ${value}` });
     }
-    if (key === "sl") {
-      config.stopLoss = Number(value);
-      bot.answerCallbackQuery(query.id, { text: `✅ Stop Loss set to ${value}%` });
+  });
+
+  // Handle text input for SL/TP
+  bot.on("message", (msg) => {
+    const text = msg.text.trim();
+
+    // Stop Loss input
+    if (!isNaN(text) && config.awaiting === "sl") {
+      config.stopLoss = parseFloat(text);
+      config.awaiting = null;
+      bot.sendMessage(msg.chat.id, `✅ Stop Loss set to ${config.stopLoss}`);
     }
-    if (key === "tp") {
-      config.takeProfit = Number(value);
-      bot.answerCallbackQuery(query.id, { text: `✅ Take Profit set to ${value}%` });
+
+    // Take Profit input
+    if (!isNaN(text) && config.awaiting === "tp") {
+      config.takeProfit = parseFloat(text);
+      config.awaiting = null;
+      bot.sendMessage(msg.chat.id, `✅ Take Profit set to ${config.takeProfit}`);
     }
   });
 }
