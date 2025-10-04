@@ -3,18 +3,18 @@ import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import { startExnessBot } from "./exnessBot.js"; 
-import { telegramToken } from "./config.js";
+import { telegramToken, telegramChatId } from "./config.js";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-// ✅ Initialize Telegram bot
+// ✅ One Telegram bot
 const bot = new TelegramBot(telegramToken, { polling: true });
 
-// ✅ Start Exness bot logic
-startExnessBot(bot);
+// ✅ Start Exness bot when server starts
+startExnessBot(bot, telegramChatId);
 
 // ✅ Keep server alive on Render
 const PORT = process.env.PORT || 3000;
