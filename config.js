@@ -1,19 +1,21 @@
-// config.js
 export const config = {
-  telegramToken: process.env.TELEGRAM_TOKEN,
-  telegramChatId: process.env.TELEGRAM_CHAT_ID,
+  // --- Telegram Bot ---
+  telegramToken: process.env.TELEGRAM_TOKEN, // from BotFather
+  telegramChatId: process.env.TELEGRAM_CHAT_ID, // your chat ID
 
-  // Trading settings
-  accountId: process.env.EXNESS_ACCOUNT_ID,
+  // --- Exness Login ---
+  loginId: process.env.EXNESS_LOGIN_ID,
   password: process.env.EXNESS_PASSWORD,
-  server: process.env.EXNESS_SERVER,
+  server: process.env.EXNESS_SERVER, // e.g., "Exness-MT5Trial"
 
-  asset: "XAUUSD",
-  strategy: "multi", // default to multi
-  strategies: ["sma", "ema", "bollinger", "macd"], // strategies used in multi
+  // --- Trading Settings ---
+  symbol: "XAUUSD", // default instrument
+  lotSize: 0.1, // adjust position size
+  strategy: "multi", // default: multi strategy
+  strategies: ["sma", "ema", "bollinger", "macd"], // used only if strategy = multi
+  autoTrading: false, // 🛑 start with auto-trading OFF
 
-  tradeAmount: 1.0,
-  maxTrades: 20,
-  profitTarget: 200,
-  lossLimit: 20,
+  // --- Risk Management ---
+  stopLoss: -200,   // stop if loss hits -200 USD
+  takeProfit: 400,  // stop if profit hits +400 USD
 };
