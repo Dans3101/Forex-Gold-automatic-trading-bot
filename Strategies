@@ -1,113 +1,49 @@
 // strategies.js
+// Trading strategies for XAUUSD (Gold)
 
-/**
- * Simple moving average crossover strategy
- */
-function smaStrategy(asset) {
-  const buySignal = Math.random() > 0.5;
-  return buySignal
-    ? { decision: "BUY", reason: `📈 SMA Crossover → Bullish on ${asset}` }
-    : { decision: "SELL", reason: `📉 SMA Crossover → Bearish on ${asset}` };
+export function movingAverageStrategy(data) {
+  // Example: Compare short MA vs long MA
+  const shortMA = data.close.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const longMA = data.close.slice(-20).reduce((a, b) => a + b, 0) / 20;
+  return shortMA > longMA ? "BUY" : "SELL";
 }
 
-/**
- * Exponential moving average strategy
- */
-function emaStrategy(asset) {
-  const buySignal = Math.random() > 0.5;
-  return buySignal
-    ? { decision: "BUY", reason: `📈 EMA Trend → Uptrend on ${asset}` }
-    : { decision: "SELL", reason: `📉 EMA Trend → Downtrend on ${asset}` };
+export function macdStrategy(data) {
+  // Example: Use last histogram value
+  const hist = data.macdHistogram[data.macdHistogram.length - 1];
+  return hist > 0 ? "BUY" : "SELL";
 }
 
-/**
- * Bollinger Bands strategy
- */
-function bollingerStrategy(asset) {
-  const signal = Math.random();
-  if (signal > 0.6) {
-    return { decision: "SELL", reason: `📉 Bollinger → Upper band touched on ${asset}` };
-  } else if (signal < 0.4) {
-    return { decision: "BUY", reason: `📈 Bollinger → Lower band touched on ${asset}` };
-  }
-  return { decision: "HOLD", reason: `➖ Bollinger → No signal on ${asset}` };
+export function stochasticStrategy(data) {
+  // Example: Overbought / Oversold
+  const k = data.stochasticK[data.stochasticK.length - 1];
+  return k > 80 ? "SELL" : k < 20 ? "BUY" : "HOLD";
 }
 
-/**
- * MACD strategy
- */
-function macdStrategy(asset) {
-  const signal = Math.random();
-  return signal > 0.5
-    ? { decision: "BUY", reason: `📈 MACD → Bullish momentum on ${asset}` }
-    : { decision: "SELL", reason: `📉 MACD → Bearish momentum on ${asset}` };
+export function bollingerStrategy(data) {
+  // Example: Price vs bands
+  const price = data.close[data.close.length - 1];
+  if (price > data.bollinger.upper) return "SELL";
+  if (price < data.bollinger.lower) return "BUY";
+  return "HOLD";
 }
 
-/**
- * Multi-strategy confirmation
- * Requires majority agreement among selected strategies
- */
-function multiStrategy(asset, strategies = ["sma", "ema", "bollinger", "macd"]) {
-  let results = [];
-  let buyCount = 0;
-  let sellCount = 0;
-
-  for (let strat of strategies) {
-    let result;
-    switch (strat.toLowerCase()) {
-      case "sma":
-        result = smaStrategy(asset);
-        break;
-      case "ema":
-        result = emaStrategy(asset);
-        break;
-      case "bollinger":
-        result = bollingerStrategy(asset);
-        break;
-      case "macd":
-        result = macdStrategy(asset);
-        break;
-      default:
-        result = { decision: "HOLD", reason: `⚠️ Unknown strategy: ${strat}` };
+// Combine strategies
+export function combinedDecision(data, activeStrategies = []) {
+  const votes = activeStrategies.map((s) => {
+    switch (s) {
+      case "ma": return movingAverageStrategy(data);
+      case "macd": return macdStrategy(data);
+      case "stochastic": return stochasticStrategy(data);
+      case "bollinger": return bollingerStrategy(data);
+      default: return "HOLD";
     }
+  });
 
-    results.push(result);
-
-    if (result.decision === "BUY") buyCount++;
-    if (result.decision === "SELL") sellCount++;
-  }
-
-  let finalDecision = "HOLD";
-  if (buyCount > sellCount && buyCount >= 2) finalDecision = "BUY";
-  if (sellCount > buyCount && sellCount >= 2) finalDecision = "SELL";
-
-  return {
-    decision: finalDecision,
-    reason: results.map(r => r.reason).join("\n"),
-  };
+  // Majority voting
+  const buys = votes.filter(v => v === "BUY").length;
+  const sells = votes.filter(v => v === "SELL").length;
+  if (buys > sells) return "BUY";
+  if (sells > buys) return "SELL";
+  return "HOLD";
 }
-
-/**
- * Main strategy handler
- */
-function applyStrategy(strategy, asset) {
-  switch (strategy.toLowerCase()) {
-    case "sma":
-      return smaStrategy(asset);
-    case "ema":
-      return emaStrategy(asset);
-    case "bollinger":
-      return bollingerStrategy(asset);
-    case "macd":
-      return macdStrategy(asset);
-    case "multi":
-      return multiStrategy(asset);
-    default:
-      return {
-        decision: "HOLD",
-        reason: `⚠️ Unknown strategy: ${strategy}. Holding on ${asset}`,
-      };
-  }
-}
-
-export { applyStrategy };
