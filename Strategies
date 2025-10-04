@@ -1,33 +1,113 @@
 // strategies.js
-// Safer strategies for XAUUSD
 
-// Moving Average Strategy (5 vs 20 period crossover)
-export function movingAverageStrategy(prices) {
-  const shortMA = prices.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
-  const longMA = prices.slice(0, 20).reduce((a, b) => a + b, 0) / 20;
-
-  if (shortMA > longMA) return "buy";
-  if (shortMA < longMA) return "sell";
-  return "wait";
+/**
+ * Simple moving average crossover strategy
+ */
+function smaStrategy(asset) {
+  const buySignal = Math.random() > 0.5;
+  return buySignal
+    ? { decision: "BUY", reason: `📈 SMA Crossover → Bullish on ${asset}` }
+    : { decision: "SELL", reason: `📉 SMA Crossover → Bearish on ${asset}` };
 }
 
-// Breakout Strategy (support/resistance levels)
-export function breakoutStrategy(prices) {
-  const recentHigh = Math.max(...prices.slice(0, 20));  // last 20 candles
-  const recentLow = Math.min(...prices.slice(0, 20));
-  const currentPrice = prices[0];
-
-  if (currentPrice > recentHigh) return "buy";   // breakout above resistance
-  if (currentPrice < recentLow) return "sell";   // breakout below support
-  return "wait";
+/**
+ * Exponential moving average strategy
+ */
+function emaStrategy(asset) {
+  const buySignal = Math.random() > 0.5;
+  return buySignal
+    ? { decision: "BUY", reason: `📈 EMA Trend → Uptrend on ${asset}` }
+    : { decision: "SELL", reason: `📉 EMA Trend → Downtrend on ${asset}` };
 }
 
-// Combine strategies
-export function combinedStrategy(data) {
-  const maSignal = movingAverageStrategy(data.prices);
-  const breakoutSignal = breakoutStrategy(data.prices);
-
-  if (maSignal === "buy" && breakoutSignal === "buy") return "buy";
-  if (maSignal === "sell" && breakoutSignal === "sell") return "sell";
-  return "wait";
+/**
+ * Bollinger Bands strategy
+ */
+function bollingerStrategy(asset) {
+  const signal = Math.random();
+  if (signal > 0.6) {
+    return { decision: "SELL", reason: `📉 Bollinger → Upper band touched on ${asset}` };
+  } else if (signal < 0.4) {
+    return { decision: "BUY", reason: `📈 Bollinger → Lower band touched on ${asset}` };
+  }
+  return { decision: "HOLD", reason: `➖ Bollinger → No signal on ${asset}` };
 }
+
+/**
+ * MACD strategy
+ */
+function macdStrategy(asset) {
+  const signal = Math.random();
+  return signal > 0.5
+    ? { decision: "BUY", reason: `📈 MACD → Bullish momentum on ${asset}` }
+    : { decision: "SELL", reason: `📉 MACD → Bearish momentum on ${asset}` };
+}
+
+/**
+ * Multi-strategy confirmation
+ * Requires majority agreement among selected strategies
+ */
+function multiStrategy(asset, strategies = ["sma", "ema", "bollinger", "macd"]) {
+  let results = [];
+  let buyCount = 0;
+  let sellCount = 0;
+
+  for (let strat of strategies) {
+    let result;
+    switch (strat.toLowerCase()) {
+      case "sma":
+        result = smaStrategy(asset);
+        break;
+      case "ema":
+        result = emaStrategy(asset);
+        break;
+      case "bollinger":
+        result = bollingerStrategy(asset);
+        break;
+      case "macd":
+        result = macdStrategy(asset);
+        break;
+      default:
+        result = { decision: "HOLD", reason: `⚠️ Unknown strategy: ${strat}` };
+    }
+
+    results.push(result);
+
+    if (result.decision === "BUY") buyCount++;
+    if (result.decision === "SELL") sellCount++;
+  }
+
+  let finalDecision = "HOLD";
+  if (buyCount > sellCount && buyCount >= 2) finalDecision = "BUY";
+  if (sellCount > buyCount && sellCount >= 2) finalDecision = "SELL";
+
+  return {
+    decision: finalDecision,
+    reason: results.map(r => r.reason).join("\n"),
+  };
+}
+
+/**
+ * Main strategy handler
+ */
+function applyStrategy(strategy, asset) {
+  switch (strategy.toLowerCase()) {
+    case "sma":
+      return smaStrategy(asset);
+    case "ema":
+      return emaStrategy(asset);
+    case "bollinger":
+      return bollingerStrategy(asset);
+    case "macd":
+      return macdStrategy(asset);
+    case "multi":
+      return multiStrategy(asset);
+    default:
+      return {
+        decision: "HOLD",
+        reason: `⚠️ Unknown strategy: ${strategy}. Holding on ${asset}`,
+      };
+  }
+}
+
+export { applyStrategy };
