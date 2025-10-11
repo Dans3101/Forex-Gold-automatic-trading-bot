@@ -1,28 +1,41 @@
 // strategies.js
 import technicalindicators from "technicalindicators";
 
+/**
+ * Each strategy below receives market data (candles) like:
+ * [{ time, open, high, low, close }, ...]
+ * The adapter will fetch this data live from Exness API or simulation.
+ */
+
 // --- Moving Average Crossover ---
 export function movingAverageCrossover(data) {
-  if (data.length < 50) return "HOLD";
+  if (!data || data.length < 50) return "HOLD";
   const closes = data.map(c => c.close);
   const shortMA = technicalindicators.SMA.calculate({ period: 10, values: closes });
   const longMA = technicalindicators.SMA.calculate({ period: 30, values: closes });
 
-  if (shortMA[shortMA.length - 1] > longMA[longMA.length - 1]) return "BUY";
-  if (shortMA[shortMA.length - 1] < longMA[longMA.length - 1]) return "SELL";
+  const shortNow = shortMA[shortMA.length - 1];
+  const longNow = longMA[longMA.length - 1];
+  if (!shortNow || !longNow) return "HOLD";
+
+  if (shortNow > longNow) return "BUY";
+  if (shortNow < longNow) return "SELL";
   return "HOLD";
 }
 
 // --- Bollinger Bands ---
 export function bollingerBands(data) {
-  if (data.length < 20) return "HOLD";
+  if (!data || data.length < 20) return "HOLD";
   const closes = data.map(c => c.close);
   const bb = technicalindicators.BollingerBands.calculate({
-    period: 20, values: closes, stdDev: 2
+    period: 20,
+    values: closes,
+    stdDev: 2,
   });
 
   const last = bb[bb.length - 1];
   const price = closes[closes.length - 1];
+  if (!last) return "HOLD";
 
   if (price < last.lower) return "BUY";
   if (price > last.upper) return "SELL";
@@ -31,7 +44,7 @@ export function bollingerBands(data) {
 
 // --- MACD Strategy ---
 export function macdStrategy(data) {
-  if (data.length < 30) return "HOLD";
+  if (!data || data.length < 30) return "HOLD";
   const closes = data.map(c => c.close);
   const macd = technicalindicators.MACD.calculate({
     values: closes,
@@ -39,7 +52,7 @@ export function macdStrategy(data) {
     slowPeriod: 26,
     signalPeriod: 9,
     SimpleMAOscillator: false,
-    SimpleMASignal: false
+    SimpleMASignal: false,
   });
 
   const last = macd[macd.length - 1];
@@ -52,7 +65,7 @@ export function macdStrategy(data) {
 
 // --- Trend Following (Simple) ---
 export function trendFollowing(data) {
-  if (data.length < 15) return "HOLD";
+  if (!data || data.length < 15) return "HOLD";
   const closes = data.map(c => c.close);
   const avg = closes.reduce((a, b) => a + b, 0) / closes.length;
   const lastPrice = closes[closes.length - 1];
@@ -64,7 +77,7 @@ export function trendFollowing(data) {
 
 // --- Support / Resistance Breakout ---
 export function supportResistance(data) {
-  if (data.length < 40) return "HOLD";
+  if (!data || data.length < 40) return "HOLD";
   const closes = data.map(c => c.close);
   const recent = closes.slice(-20);
 
@@ -72,7 +85,7 @@ export function supportResistance(data) {
   const resistance = Math.max(...recent);
   const lastPrice = closes[closes.length - 1];
 
-  if (lastPrice <= support) return "BUY";   // bounce from support
+  if (lastPrice <= support) return "BUY"; // bounce from support
   if (lastPrice >= resistance) return "SELL"; // rejection at resistance
   return "HOLD";
 }
@@ -84,7 +97,7 @@ export function combinedDecision(data) {
     bollingerBands(data),
     macdStrategy(data),
     trendFollowing(data),
-    supportResistance(data)
+    supportResistance(data),
   ];
 
   const buyCount = results.filter(r => r === "BUY").length;
@@ -95,5 +108,36 @@ export function combinedDecision(data) {
   return "HOLD";
 }
 
-// --- Alias for exnessBot.js ---
-export const applyStrategy = combinedDecision;
+/**
+ * applyStrategy() → Unified strategy entry point.
+ * 
+ * @param {string} strategyName - selected strategy name from config
+ * @param {object} adapter - ExnessAdapter instance
+ * @param {string} symbol - trading pair (e.g. XAUUSD)
+ * 
+ * Returns "BUY" | "SELL" | "HOLD"
+ */
+export async function applyStrategy(strategyName, adapter, symbol) {
+  try {
+    // ✅ Fetch 100 latest candles (1-minute timeframe)
+    const candles = await adapter.fetchHistoricCandles(symbol, "1m", 100);
+
+    switch (strategyName) {
+      case "movingAverage":
+        return movingAverageCrossover(candles);
+      case "bollinger":
+        return bollingerBands(candles);
+      case "macd":
+        return macdStrategy(candles);
+      case "trend":
+        return trendFollowing(candles);
+      case "supportResistance":
+        return supportResistance(candles);
+      default:
+        return combinedDecision(candles);
+    }
+  } catch (err) {
+    console.error("❌ Strategy error:", err.message);
+    return "HOLD";
+  }
+}
