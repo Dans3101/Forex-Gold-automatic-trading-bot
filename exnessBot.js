@@ -47,9 +47,7 @@ async function startExnessBot(bot, chatId) {
       const balance = await adapter.getBalance();
       const price = await adapter.getPrice(config.asset);
 
-      // Fetch candle history for strategy
-      const candles = await fetchHistoricCandles(config.asset); // custom function below
-
+      const candles = await fetchHistoricCandles(config.asset);
       const decision = applyStrategy(candles);
       console.log(`📊 ${config.asset} | Decision: ${decision} | Balance: ${balance}`);
 
@@ -84,7 +82,7 @@ async function startExnessBot(bot, chatId) {
         }
       }
 
-      // Risk management (placeholder logic)
+      // Risk management (simple placeholders)
       if (balance <= 0 || balance < config.stopLoss) {
         stopExnessBot(bot, chatId);
         bot.sendMessage(chatId, "🛑 Bot stopped due to Stop Loss condition.");
@@ -119,12 +117,11 @@ function stopExnessBot(bot, chatId) {
 }
 
 /**
- * ✅ Fetch candle data (for strategy)
- * You can later replace this with real candle data via API
+ * ✅ Fetch candle data (simulated for now)
  */
 async function fetchHistoricCandles(symbol) {
   const price = await adapter.getPrice(symbol);
-  const candles = Array.from({ length: 50 }, (_, i) => ({
+  const candles = Array.from({ length: 50 }, () => ({
     open: price - Math.random() * 2,
     close: price + Math.random() * 2,
     high: price + Math.random() * 4,
@@ -134,14 +131,41 @@ async function fetchHistoricCandles(symbol) {
 }
 
 /**
- * ✅ Telegram controls (settings adjustment)
+ * ✅ Telegram controls & commands
  */
 function setupTelegramHandlers(bot) {
-  // Start/Stop
+  // Start/Stop commands
   bot.onText(/\/startbot/, (msg) => startExnessBot(bot, msg.chat.id));
   bot.onText(/\/stopbot/, (msg) => stopExnessBot(bot, msg.chat.id));
 
-  // Adjust trading asset
+  // 📊 STATUS COMMAND
+  bot.onText(/\/status/, async (msg) => {
+    try {
+      const connected = adapter.connected;
+      const balance = await adapter.getBalance();
+      const price = await adapter.getPrice(config.asset);
+      const marketOpen = await adapter.isMarketOpen(config.asset);
+
+      const statusMsg =
+        `🛰 *Bot Status*\n\n` +
+        `🔗 Connection: *${connected ? "Connected ✅" : "Disconnected ❌"}*\n` +
+        `🟢 Active: *${botActive ? "Running" : "Stopped"}*\n` +
+        `💱 Asset: *${config.asset}*\n` +
+        `💰 Balance: *${balance.toFixed(2)} USD*\n` +
+        `💹 Price: *${price.toFixed(2)}*\n` +
+        `⚙️ Strategy: *${config.strategy}*\n` +
+        `📊 Lot Size: *${config.lotSize}*\n` +
+        `🛑 Stop Loss: *${config.stopLoss}%*\n` +
+        `🎯 Take Profit: *${config.takeProfit} USD*\n` +
+        `🕒 Market: *${marketOpen ? "OPEN ✅" : "CLOSED ❌"}*`;
+
+      bot.sendMessage(msg.chat.id, statusMsg, { parse_mode: "Markdown" });
+    } catch (err) {
+      bot.sendMessage(msg.chat.id, `⚠️ Error fetching status: ${err.message}`);
+    }
+  });
+
+  // Asset selector
   bot.onText(/\/setasset/, (msg) => {
     bot.sendMessage(msg.chat.id, "💱 Choose a trading asset:", {
       reply_markup: {
@@ -155,7 +179,7 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Lot size
+  // Lot size selector
   bot.onText(/\/setlot/, (msg) => {
     bot.sendMessage(msg.chat.id, "📐 Choose lot size:", {
       reply_markup: {
@@ -168,7 +192,7 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Stop loss
+  // Stop Loss selector
   bot.onText(/\/setsl/, (msg) => {
     bot.sendMessage(msg.chat.id, "🛑 Choose Stop Loss (%):", {
       reply_markup: {
@@ -180,7 +204,7 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Take profit
+  // Take Profit selector
   bot.onText(/\/settp/, (msg) => {
     bot.sendMessage(msg.chat.id, "🎯 Choose Take Profit (USD):", {
       reply_markup: {
@@ -192,21 +216,21 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Strategy selection
+  // Strategy selector
   bot.onText(/\/setstrategy/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🧠 Choose a strategy:", {
+    bot.sendMessage(msg.chat.id, "🧠 Choose a trading strategy:", {
       reply_markup: {
         inline_keyboard: [
           [{ text: "Moving Average", callback_data: "strategy:movingAverage" }],
           [{ text: "Bollinger Bands", callback_data: "strategy:bollingerBands" }],
           [{ text: "MACD", callback_data: "strategy:macdStrategy" }],
-          [{ text: "Combined", callback_data: "strategy:combinedDecision" }],
+          [{ text: "Combined Decision", callback_data: "strategy:combinedDecision" }],
         ],
       },
     });
   });
 
-  // Handle button updates
+  // Handle inline selections
   bot.on("callback_query", (query) => {
     const [key, value] = query.data.split(":");
     switch (key) {
