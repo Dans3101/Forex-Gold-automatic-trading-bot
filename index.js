@@ -3,7 +3,8 @@ import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import { startExnessBot, stopExnessBot, setupTelegramHandlers } from "./exnessBot.js";
-import { telegramToken, telegramChatId, config } from "./config.js";
+import { telegramToken, telegramChatId, config, exness } from "./config.js";
+import ExnessAdapter from "./exnessAdapter.js";
 
 dotenv.config();
 
@@ -11,10 +12,27 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const URL = process.env.RENDER_EXTERNAL_URL || `https://your-app.onrender.com`; // replace with your Render URL
+const URL = process.env.RENDER_EXTERNAL_URL || `https://your-app.onrender.com`;
 
-// ✅ Use polling locally, webhook on Render
 let bot;
+let adapter;
+
+// ✅ Initialize Exness adapter connection
+async function initExness() {
+  adapter = new ExnessAdapter({
+    loginId: exness.loginId,
+    password: exness.password,
+    server: exness.server,
+    useSimulation: false, // change to true if testing without API
+  });
+
+  console.log("🔌 Connecting to Exness...");
+  const connected = await adapter.connect();
+  if (connected) console.log("✅ Exness connected successfully!");
+  else console.error("❌ Failed to connect to Exness");
+}
+
+// ✅ Telegram Bot setup
 if (process.env.NODE_ENV === "production") {
   bot = new TelegramBot(telegramToken, { webHook: true });
   bot.setWebHook(`${URL}/webhook/${telegramToken}`);
@@ -30,51 +48,43 @@ bot.setMyCommands([
   { command: "/exstart", description: "Start Exness trading bot" },
   { command: "/exstop", description: "Stop Exness trading bot" },
   { command: "/config", description: "Show current bot config" },
-  { command: "/setasset", description: "Select trading asset" },
-  { command: "/setlot", description: "Set lot size (0.01–10)" },
-  { command: "/setsl", description: "Set Stop Loss (price)" },
-  { command: "/settp", description: "Set Take Profit (price)" }
+  { command: "/balance", description: "Check Exness account balance" },
+  { command: "/open", description: "Show open trades" },
 ]);
 
-// ✅ Start message with inline buttons
+// ✅ Start message
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-
-  bot.sendMessage(
-    chatId,
-    `👋 Welcome to your Forex Trading Bot!\n\nUse the buttons below to control the bot:`,
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "▶ Start Bot", callback_data: "exstart" },
-            { text: "⏹ Stop Bot", callback_data: "exstop" }
-          ],
-          [
-            { text: "⚙ Show Config", callback_data: "config" }
-          ],
-          [
-            { text: "💰 Set Asset", callback_data: "setasset" },
-            { text: "📊 Set Lot Size", callback_data: "setlot" }
-          ],
-          [
-            { text: "🛑 Set StopLoss", callback_data: "setsl" },
-            { text: "🎯 Set TakeProfit", callback_data: "settp" }
-          ]
-        ]
-      }
-    }
-  );
+  bot.sendMessage(chatId, `👋 Welcome to your Exness Forex Bot!`, {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "▶ Start Bot", callback_data: "exstart" },
+          { text: "⏹ Stop Bot", callback_data: "exstop" },
+        ],
+        [{ text: "⚙ Show Config", callback_data: "config" }],
+        [
+          { text: "💰 Set Asset", callback_data: "setasset" },
+          { text: "📊 Set Lot Size", callback_data: "setlot" },
+        ],
+        [
+          { text: "🛑 Set StopLoss", callback_data: "setsl" },
+          { text: "🎯 Set TakeProfit", callback_data: "settp" },
+        ],
+        [{ text: "💵 Show Balance", callback_data: "balance" }],
+      ],
+    },
+  });
 });
 
 // ✅ Handle inline button clicks
-bot.on("callback_query", (query) => {
+bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
   const action = query.data;
 
   switch (action) {
     case "exstart":
-      startExnessBot(bot, chatId);
+      startExnessBot(bot, chatId, adapter);
       bot.sendMessage(chatId, "✅ Exness bot started!");
       break;
 
@@ -84,39 +94,50 @@ bot.on("callback_query", (query) => {
       break;
 
     case "config":
-      const { lotSize, stopLoss, takeProfit, asset } = config;
       bot.sendMessage(
         chatId,
-        `⚙️ *Current Bot Config:*\n\n` +
-        `Asset: *${asset}*\nLot Size: *${lotSize}*\nStop Loss: *${stopLoss}*\nTake Profit: *${takeProfit}*`,
+        `⚙️ *Current Config:*\n` +
+          `Asset: *${config.asset}*\n` +
+          `Lot Size: *${config.lotSize}*\n` +
+          `Trade Amount: *${config.tradeAmount}%*\n` +
+          `Stop Loss: *${config.stopLoss}%*\n` +
+          `Take Profit: *${config.takeProfit} USD*`,
         { parse_mode: "Markdown" }
       );
       break;
 
-    case "setasset":
-      bot.sendMessage(chatId, "💰 Please send the asset (e.g., XAUUSD).");
+    case "balance":
+      const balance = await adapter.getBalance();
+      bot.sendMessage(chatId, `💵 *Current Balance:* ${balance.toFixed(2)} USD`, {
+        parse_mode: "Markdown",
+      });
       break;
 
-    case "setlot":
-      bot.sendMessage(chatId, "📊 Please send the lot size (0.01 – 10).");
-      break;
-
-    case "setsl":
-      bot.sendMessage(chatId, "🛑 Please send the Stop Loss (exact price).");
-      break;
-
-    case "settp":
-      bot.sendMessage(chatId, "🎯 Please send the Take Profit (exact price).");
+    case "open":
+      const trades = await adapter.getOpenTrades();
+      if (trades.length === 0) {
+        bot.sendMessage(chatId, "📭 No open trades currently.");
+      } else {
+        const tradeList = trades
+          .map(
+            (t) =>
+              `#${t.id}\nSymbol: ${t.symbol}\nSide: ${t.side}\nPrice: ${t.price}\nLot: ${t.lotSize}\n`
+          )
+          .join("\n\n");
+        bot.sendMessage(chatId, `📋 *Open Trades:*\n\n${tradeList}`, {
+          parse_mode: "Markdown",
+        });
+      }
       break;
 
     default:
       bot.sendMessage(chatId, "❌ Unknown action.");
   }
 
-  bot.answerCallbackQuery(query.id); // remove loading spinner
+  bot.answerCallbackQuery(query.id);
 });
 
-// ✅ Inline keyboards / extended handlers (in exnessBot.js)
+// ✅ Setup Telegram handlers for adjustable settings
 setupTelegramHandlers(bot, telegramChatId);
 
 // ✅ Webhook endpoint for Render
@@ -125,7 +146,8 @@ app.post(`/webhook/${telegramToken}`, (req, res) => {
   res.sendStatus(200);
 });
 
-// ✅ Start server
-app.listen(PORT, () => {
+// ✅ Initialize connection and start server
+app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  await initExness();
 });
