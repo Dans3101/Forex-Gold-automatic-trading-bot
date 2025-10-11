@@ -1,82 +1,97 @@
 // exnessBot.js
-import { config } from "./config.js";
+import { config, exness } from "./config.js";
+import ExnessAdapter from "./exnessAdapter.js";
 import { applyStrategy } from "./strategies.js";
 
 let botActive = false;
 let intervalId = null;
 
-/**
- * Simulated check if market is open
- * (In real implementation, you’d check broker API or time/day)
- */
-function isMarketOpen() {
-  const day = new Date().getUTCDay();   // 0=Sun ... 6=Sat
-  const hour = new Date().getUTCHours();
-  // Example: Forex closed on weekends (Fri 21:00 → Sun 21:00 UTC)
-  if (day === 6 || day === 0) return false;
-  return true;
-}
+// Initialize adapter instance (real or simulated)
+const adapter = new ExnessAdapter({
+  loginId: exness.loginId,
+  password: exness.password,
+  server: exness.server,
+  useSimulation: config.simulationMode,
+});
 
 /**
  * Start Exness trading bot
  */
-function startExnessBot(bot, chatId) {
+async function startExnessBot(bot, chatId) {
   if (botActive) return;
   botActive = true;
 
-  bot.sendMessage(chatId, "📈 Exness trading bot started...");
+  await adapter.connect();
+  bot.sendMessage(chatId, "📈 Exness trading bot connected and starting...");
 
   intervalId = setInterval(async () => {
     if (!botActive) return;
 
     try {
-      config.marketOpen = isMarketOpen();
+      // Check market status
+      const marketOpen = await adapter.isMarketOpen(config.asset);
+      config.marketOpen = marketOpen;
 
-      if (!config.marketOpen) {
-        await bot.sendMessage(chatId, "❌ Market is currently CLOSED. No trades placed.");
+      if (!marketOpen) {
+        await bot.sendMessage(chatId, "❌ Market is currently *CLOSED*. Waiting for open hours...", {
+          parse_mode: "Markdown",
+        });
         return;
       }
 
-      const { tradeAmount, lotSize, strategy, stopLoss, takeProfit, asset } = config;
+      // Fetch dynamic account and market data
+      const balance = await adapter.getBalance();
+      const price = await adapter.getPrice(config.asset);
 
-      // Bot picks strategy automatically
-      const decision = applyStrategy(strategy, asset);
+      // Auto strategy selection (for now pick one randomly or by condition)
+      const decision = applyStrategy(config.strategy, config.asset);
+      console.log(`📊 ${config.asset} | Decision: ${decision} | Lot: ${config.lotSize} | Balance: ${balance}`);
 
-      console.log(
-        `📌 Trade Decision: ${decision} | Asset: ${asset} | Lot: ${lotSize} | Amount: ${tradeAmount}%`
-      );
-
+      // Send trade update
       await bot.sendMessage(
         chatId,
-        `📊 *Trade Signal:*\n\n` +
-          `Asset: *${asset}*\n` +
-          `Decision: *${decision}*\n` +
-          `Lot Size: *${lotSize}*\n` +
-          `Trade Amount: *${tradeAmount}% of balance*\n` +
-          `Stop Loss: *${stopLoss}%*\n` +
-          `Take Profit Target: *${takeProfit} USD*`,
+        `📊 *Trade Update*\n\n` +
+          `Asset: *${config.asset}*\n` +
+          `Market Price: *${price}*\n` +
+          `Decision: *${decision.toUpperCase()}*\n` +
+          `Lot Size: *${config.lotSize}*\n` +
+          `Trade Amount: *${config.tradeAmount}%*\n` +
+          `Stop Loss: *${config.stopLoss}%*\n` +
+          `Take Profit: *${config.takeProfit} USD*\n` +
+          `Balance: *${balance.toFixed(2)} USD*\n\n` +
+          (marketOpen ? "✅ *Market Open*" : "❌ *Market Closed*"),
         { parse_mode: "Markdown" }
       );
 
-      // Risk management (simulation for now)
-      if (Math.random() * 100 < stopLoss) {
+      // Place simulated order
+      const order = await adapter.placeOrder({
+        symbol: config.asset,
+        side: decision,
+        lotSize: config.lotSize,
+      });
+
+      console.log("✅ Order placed:", order);
+
+      // Check risk conditions
+      if (Math.random() * 100 < config.stopLoss) {
         stopExnessBot();
         await bot.sendMessage(chatId, "🛑 Bot stopped due to Stop Loss condition.");
       }
 
-      // Fixed profit condition
-      if (Math.random() * 500 < takeProfit) {
+      // Profit condition
+      if (Math.random() * 1000 < config.takeProfit / 10) {
         stopExnessBot();
         await bot.sendMessage(
           chatId,
-          `🎉 Bot stopped after reaching profit target of ${takeProfit} USD.`
+          `🎉 Bot stopped after reaching target profit of *${config.takeProfit} USD*`,
+          { parse_mode: "Markdown" }
         );
       }
     } catch (err) {
       console.error("❌ Bot error:", err.message);
       await bot.sendMessage(chatId, `❌ Bot error: ${err.message}`);
     }
-  }, 15000); // run every 15s
+  }, 15000); // Run every 15s
 }
 
 /**
@@ -90,10 +105,10 @@ function stopExnessBot() {
 }
 
 /**
- * Setup Telegram command handlers with inline keyboards
+ * Setup Telegram handlers
  */
 function setupTelegramHandlers(bot) {
-  // Asset selector
+  // --- Asset selector ---
   bot.onText(/\/setasset/, (msg) => {
     bot.sendMessage(msg.chat.id, "💱 Choose a trading asset:", {
       reply_markup: {
@@ -107,7 +122,7 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Lot size selector
+  // --- Lot size selector ---
   bot.onText(/\/setlot/, (msg) => {
     bot.sendMessage(msg.chat.id, "📐 Choose lot size (0.01 – 10):", {
       reply_markup: {
@@ -120,19 +135,7 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Trade amount selector
-  bot.onText(/\/setamount/, (msg) => {
-    bot.sendMessage(msg.chat.id, "💰 Choose trade amount (% of balance):", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "1%", callback_data: "amount:1" }, { text: "2%", callback_data: "amount:2" }],
-          [{ text: "5%", callback_data: "amount:5" }, { text: "10%", callback_data: "amount:10" }],
-        ],
-      },
-    });
-  });
-
-  // Stop Loss selector
+  // --- Stop Loss selector ---
   bot.onText(/\/setsl/, (msg) => {
     bot.sendMessage(msg.chat.id, "🛑 Set Stop Loss (%):", {
       reply_markup: {
@@ -144,7 +147,7 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Take Profit selector
+  // --- Take Profit selector ---
   bot.onText(/\/settp/, (msg) => {
     bot.sendMessage(msg.chat.id, "🎯 Set Take Profit (USD):", {
       reply_markup: {
@@ -156,30 +159,31 @@ function setupTelegramHandlers(bot) {
     });
   });
 
-  // Handle callback button presses
+  // --- Handle button responses ---
   bot.on("callback_query", (query) => {
     const [key, value] = query.data.split(":");
 
-    if (key === "asset") {
-      config.asset = value;
-      bot.answerCallbackQuery(query.id, { text: `✅ Asset set to ${value}` });
+    switch (key) {
+      case "asset":
+        config.asset = value;
+        break;
+      case "lot":
+        config.lotSize = Number(value);
+        break;
+      case "sl":
+        config.stopLoss = Number(value);
+        break;
+      case "tp":
+        config.takeProfit = Number(value);
+        break;
+      default:
+        break;
     }
-    if (key === "lot") {
-      config.lotSize = Number(value);
-      bot.answerCallbackQuery(query.id, { text: `✅ Lot size set to ${value}` });
-    }
-    if (key === "amount") {
-      config.tradeAmount = Number(value);
-      bot.answerCallbackQuery(query.id, { text: `✅ Trade amount set to ${value}%` });
-    }
-    if (key === "sl") {
-      config.stopLoss = Number(value);
-      bot.answerCallbackQuery(query.id, { text: `✅ Stop Loss set to ${value}%` });
-    }
-    if (key === "tp") {
-      config.takeProfit = Number(value);
-      bot.answerCallbackQuery(query.id, { text: `✅ Take Profit set to ${value} USD` });
-    }
+
+    bot.answerCallbackQuery(query.id, {
+      text: `✅ Updated: ${key.toUpperCase()} → ${value}`,
+      show_alert: false,
+    });
   });
 }
 
