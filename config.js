@@ -20,7 +20,7 @@ const telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
 // ✅ Twelve Data API configuration
 const twelveData = {
-  apiKey: process.env.TWELVEDATA_API_KEY,   // your Twelve Data key
+  apiKey: process.env.TWELVE_DATA_API_KEY,   // your Twelve Data key
   baseUrl: "https://api.twelvedata.com",
 };
 
