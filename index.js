@@ -1,9 +1,13 @@
 // index.js
+// -----------------------------------------------------------------------------
+// Exness Gold Trading Bot - Telegram Interface + Twelve Data Adapter Integration
+// -----------------------------------------------------------------------------
+
 import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import { startExnessBot, stopExnessBot, setupTelegramHandlers } from "./exnessBot.js";
-import { telegramToken, telegramChatId, config, exness } from "./config.js";
+import { telegramToken, telegramChatId, config } from "./config.js";
 import ExnessAdapter from "./exnessAdapter.js";
 
 dotenv.config();
@@ -17,54 +21,60 @@ const URL = process.env.RENDER_EXTERNAL_URL || `https://your-app.onrender.com`;
 let bot;
 let adapter;
 
-// ✅ Initialize Exness adapter connection
+// -----------------------------------------------------------------------------
+// ✅ Initialize Twelve Data (ExnessAdapter) Connection
+// -----------------------------------------------------------------------------
 async function initExness() {
-  adapter = new ExnessAdapter({
-    loginId: exness.loginId,
-    password: exness.password,
-    server: exness.server,
-    useSimulation: false, // true = demo mode
-  });
+  try {
+    adapter = new ExnessAdapter({
+      apiKey: process.env.TWELVE_DATA_API_KEY,
+      useSimulation: config.simulationMode, // from config.js
+    });
 
-  console.log("🔌 Connecting to Exness...");
-  const connected = await adapter.connect();
+    console.log("🔌 Connecting to Twelve Data API...");
+    await adapter.connect();
 
-  if (connected) {
-    console.log("✅ Exness connected successfully!");
-    console.log("🧪 Connection Test Log: Fetching account balance...");
+    console.log("✅ Connected successfully to Twelve Data!");
+    console.log("🧪 Running connection test...");
     const balance = await adapter.getBalance();
-    console.log(`💰 Current Exness Balance: ${balance.toFixed(2)} USD`);
-  } else {
-    console.error("❌ Failed to connect to Exness (check login/server info)");
+    console.log(`💰 Simulated Account Balance: ${balance.toFixed(2)} USD`);
+  } catch (err) {
+    console.error("❌ Failed to initialize ExnessAdapter:", err.message);
   }
 }
 
-// ✅ Telegram Bot setup
+// -----------------------------------------------------------------------------
+// ✅ Telegram Bot Initialization
+// -----------------------------------------------------------------------------
 if (process.env.NODE_ENV === "production") {
   bot = new TelegramBot(telegramToken, { webHook: true });
   bot.setWebHook(`${URL}/webhook/${telegramToken}`);
   console.log(`🌍 Webhook set to ${URL}/webhook/${telegramToken}`);
 } else {
   bot = new TelegramBot(telegramToken, { polling: true });
-  console.log("📡 Running bot in polling mode (local test mode)");
+  console.log("📡 Running Telegram bot in polling mode (development)");
 }
 
-// ✅ Command menu
+// -----------------------------------------------------------------------------
+// ✅ Bot Commands Menu
+// -----------------------------------------------------------------------------
 bot.setMyCommands([
   { command: "/start", description: "Show welcome message & buttons" },
-  { command: "/exstart", description: "Start Exness trading bot" },
+  { command: "/exstart", description: "Start Exness (Twelve Data) trading bot" },
   { command: "/exstop", description: "Stop Exness trading bot" },
-  { command: "/config", description: "Show current bot config" },
-  { command: "/balance", description: "Check Exness account balance" },
+  { command: "/config", description: "Show current bot configuration" },
+  { command: "/balance", description: "Check simulated account balance" },
   { command: "/open", description: "Show open trades" },
 ]);
 
-// ✅ /start message
+// -----------------------------------------------------------------------------
+// ✅ /start Message with Interactive Buttons
+// -----------------------------------------------------------------------------
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   console.log(`📲 User ${chatId} started bot session`);
 
-  bot.sendMessage(chatId, `👋 Welcome to your Exness Forex Bot!`, {
+  bot.sendMessage(chatId, `👋 Welcome to your Exness Gold Trading Bot!`, {
     reply_markup: {
       inline_keyboard: [
         [
@@ -86,22 +96,24 @@ bot.onText(/\/start/, (msg) => {
   });
 });
 
-// ✅ Handle button callbacks
+// -----------------------------------------------------------------------------
+// ✅ Handle Inline Button Actions
+// -----------------------------------------------------------------------------
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
   const action = query.data;
-  console.log(`📩 User ${chatId} clicked button: ${action}`);
+  console.log(`📩 Button pressed by ${chatId}: ${action}`);
 
   try {
     switch (action) {
       case "exstart":
         await startExnessBot(bot, chatId, adapter);
-        bot.sendMessage(chatId, "✅ Exness bot started!");
+        bot.sendMessage(chatId, "✅ Exness trading bot started!");
         break;
 
       case "exstop":
         stopExnessBot();
-        bot.sendMessage(chatId, "🛑 Exness bot stopped.");
+        bot.sendMessage(chatId, "🛑 Exness trading bot stopped.");
         break;
 
       case "config":
@@ -112,7 +124,8 @@ bot.on("callback_query", async (query) => {
             `Lot Size: *${config.lotSize}*\n` +
             `Trade Amount: *${config.tradeAmount}%*\n` +
             `Stop Loss: *${config.stopLoss}%*\n` +
-            `Take Profit: *${config.takeProfit} USD*`,
+            `Take Profit: *${config.takeProfit} USD*\n` +
+            `Simulation Mode: *${config.simulationMode ? "ON" : "OFF"}*`,
           { parse_mode: "Markdown" }
         );
         break;
@@ -142,26 +155,32 @@ bot.on("callback_query", async (query) => {
         break;
 
       default:
-        bot.sendMessage(chatId, "❌ Unknown action.");
+        bot.sendMessage(chatId, "❌ Unknown action selected.");
     }
   } catch (err) {
-    console.error(`⚠️ Error handling action "${action}":`, err.message);
+    console.error(`⚠️ Error processing action "${action}":`, err.message);
     bot.sendMessage(chatId, `⚠️ An error occurred: ${err.message}`);
   }
 
   bot.answerCallbackQuery(query.id);
 });
 
-// ✅ Extra handlers (for settings via Telegram)
+// -----------------------------------------------------------------------------
+// ✅ Setup Custom Telegram Handlers
+// -----------------------------------------------------------------------------
 setupTelegramHandlers(bot, telegramChatId);
 
-// ✅ Webhook endpoint for Render
+// -----------------------------------------------------------------------------
+// ✅ Webhook Endpoint for Render
+// -----------------------------------------------------------------------------
 app.post(`/webhook/${telegramToken}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// ✅ Start server and connect Exness
+// -----------------------------------------------------------------------------
+// ✅ Start Express Server + Initialize Twelve Data
+// -----------------------------------------------------------------------------
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   await initExness();
