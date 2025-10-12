@@ -1,20 +1,24 @@
 // exnessBot.js
-import { config, exness } from "./config.js";
+// -----------------------------------------------------------------------------
+// Live Price Trading Bot — using Twelve Data API via exnessAdapter.js
+// -----------------------------------------------------------------------------
+
+import { config } from "./config.js";
 import ExnessAdapter from "./exnessAdapter.js";
 import { applyStrategy } from "./strategies.js";
 
+// Bot state
 let botActive = false;
 let intervalId = null;
 
-// ✅ Initialize adapter
+// ✅ Initialize the live adapter (with API key from environment)
 const adapter = new ExnessAdapter({
-  loginId: exness.loginId,
-  password: exness.password,
-  server: exness.server,
+  apiKey: process.env.TWELVE_DATA_API_KEY,
+  useSimulation: true, // still simulates trades for safety
 });
 
 /**
- * ✅ Start Exness trading bot
+ * ✅ Start Trading Bot
  */
 async function startExnessBot(bot, chatId) {
   try {
@@ -24,18 +28,19 @@ async function startExnessBot(bot, chatId) {
     }
 
     botActive = true;
-    console.log("🚀 Starting Exness bot...");
+    console.log("🚀 Starting Exness Bot...");
 
+    // Connect to live Twelve Data API
     const connected = await adapter.connect();
     if (!connected) {
-      await safeSend(bot, chatId, "❌ Failed to connect to Exness. Check credentials/server.");
+      await safeSend(bot, chatId, "❌ Failed to connect to Twelve Data API. Check API key.");
       botActive = false;
       return;
     }
 
-    await safeSend(bot, chatId, "📈 Exness bot connected. Fetching live market data...");
+    await safeSend(bot, chatId, "📈 Connected to Twelve Data API. Fetching live gold price...");
 
-    // ⏱ Run bot every 15 seconds
+    // ⏱ Execute every 15 seconds
     intervalId = setInterval(async () => {
       if (!botActive) return;
 
@@ -50,10 +55,14 @@ async function startExnessBot(bot, chatId) {
 
         const balance = await adapter.getBalance();
         const price = await adapter.getPrice(config.asset);
-        const candles = await fetchHistoricCandles(config.asset);
+        const candles = await adapter.fetchHistoricCandles(config.asset);
         const decision = applyStrategy(candles);
 
-        console.log(`📊 ${config.asset} | Decision: ${decision} | Balance: ${balance.toFixed(2)} | Price: ${price.toFixed(2)}`);
+        console.log(
+          `📊 ${config.asset} | Decision: ${decision} | Balance: ${balance.toFixed(
+            2
+          )} | Price: ${price.toFixed(2)}`
+        );
 
         await safeSend(
           bot,
@@ -70,6 +79,7 @@ async function startExnessBot(bot, chatId) {
           { parse_mode: "Markdown" }
         );
 
+        // 🧠 Decision handling
         if (decision === "BUY" || decision === "SELL") {
           const order = await adapter.placeOrder({
             symbol: config.asset,
@@ -78,8 +88,10 @@ async function startExnessBot(bot, chatId) {
           });
 
           if (order.success) {
-            console.log(`✅ Order executed: ${decision} ${config.asset}`);
-            await safeSend(bot, chatId, `✅ *Order executed:* ${decision} ${config.asset}`, { parse_mode: "Markdown" });
+            console.log(`✅ Trade executed: ${decision} ${config.asset}`);
+            await safeSend(bot, chatId, `✅ *Trade executed:* ${decision} ${config.asset}`, {
+              parse_mode: "Markdown",
+            });
           } else {
             console.error("❌ Order failed:", order.error);
           }
@@ -88,7 +100,7 @@ async function startExnessBot(bot, chatId) {
         // 🛑 Risk management
         if (balance <= 0 || balance < config.stopLoss) {
           await stopExnessBot(bot, chatId);
-          await safeSend(bot, chatId, "🛑 Bot stopped due to Stop Loss condition.");
+          await safeSend(bot, chatId, "🛑 Bot stopped — Stop Loss triggered.");
         }
 
         if (balance >= config.takeProfit) {
@@ -102,11 +114,12 @@ async function startExnessBot(bot, chatId) {
     }, 15000);
   } catch (err) {
     console.error("❌ startExnessBot() error:", err.message);
+    await safeSend(bot, chatId, `⚠️ Start error: ${err.message}`);
   }
 }
 
 /**
- * ✅ Stop Exness trading bot
+ * ✅ Stop Trading Bot
  */
 async function stopExnessBot(bot, chatId) {
   try {
@@ -119,28 +132,15 @@ async function stopExnessBot(bot, chatId) {
     if (intervalId) clearInterval(intervalId);
     intervalId = null;
 
-    console.log("🛑 Exness bot stopped.");
-    await safeSend(bot, chatId, "🛑 Exness bot stopped.");
+    console.log("🛑 Bot stopped.");
+    await safeSend(bot, chatId, "🛑 Bot stopped.");
   } catch (err) {
     console.error("❌ stopExnessBot() error:", err.message);
   }
 }
 
 /**
- * ✅ Fetch candle data (simulated for now)
- */
-async function fetchHistoricCandles(symbol) {
-  const price = await adapter.getPrice(symbol);
-  return Array.from({ length: 50 }, () => ({
-    open: price - Math.random() * 2,
-    close: price + Math.random() * 2,
-    high: price + Math.random() * 4,
-    low: price - Math.random() * 4,
-  }));
-}
-
-/**
- * ✅ Safe Telegram send wrapper
+ * ✅ Safe Telegram message wrapper
  */
 async function safeSend(bot, chatId, text, options = {}) {
   try {
@@ -152,14 +152,14 @@ async function safeSend(bot, chatId, text, options = {}) {
 }
 
 /**
- * ✅ Telegram controls & commands
+ * ✅ Telegram Controls
  */
 function setupTelegramHandlers(bot) {
   // Start / Stop
   bot.onText(/\/startbot/, (msg) => startExnessBot(bot, msg.chat.id));
   bot.onText(/\/stopbot/, (msg) => stopExnessBot(bot, msg.chat.id));
 
-  // Status
+  // Status check
   bot.onText(/\/status/, async (msg) => {
     try {
       const connected = adapter.connected;
@@ -186,7 +186,7 @@ function setupTelegramHandlers(bot) {
     }
   });
 
-  // Adjustable settings
+  // Config menus (unchanged)
   const menu = {
     asset: [
       [{ text: "XAUUSD (Gold)", callback_data: "asset:XAUUSD" }],
@@ -215,27 +215,61 @@ function setupTelegramHandlers(bot) {
     ],
   };
 
-  bot.onText(/\/setasset/, (msg) => safeSend(bot, msg.chat.id, "💱 Choose a trading asset:", { reply_markup: { inline_keyboard: menu.asset } }));
-  bot.onText(/\/setlot/, (msg) => safeSend(bot, msg.chat.id, "📐 Choose lot size:", { reply_markup: { inline_keyboard: menu.lot } }));
-  bot.onText(/\/setsl/, (msg) => safeSend(bot, msg.chat.id, "🛑 Choose Stop Loss (%):", { reply_markup: { inline_keyboard: menu.sl } }));
-  bot.onText(/\/settp/, (msg) => safeSend(bot, msg.chat.id, "🎯 Choose Take Profit (USD):", { reply_markup: { inline_keyboard: menu.tp } }));
-  bot.onText(/\/setstrategy/, (msg) => safeSend(bot, msg.chat.id, "🧠 Choose a trading strategy:", { reply_markup: { inline_keyboard: menu.strategy } }));
+  bot.onText(/\/setasset/, (msg) =>
+    safeSend(bot, msg.chat.id, "💱 Choose a trading asset:", {
+      reply_markup: { inline_keyboard: menu.asset },
+    })
+  );
+  bot.onText(/\/setlot/, (msg) =>
+    safeSend(bot, msg.chat.id, "📐 Choose lot size:", {
+      reply_markup: { inline_keyboard: menu.lot },
+    })
+  );
+  bot.onText(/\/setsl/, (msg) =>
+    safeSend(bot, msg.chat.id, "🛑 Choose Stop Loss (%):", {
+      reply_markup: { inline_keyboard: menu.sl },
+    })
+  );
+  bot.onText(/\/settp/, (msg) =>
+    safeSend(bot, msg.chat.id, "🎯 Choose Take Profit (USD):", {
+      reply_markup: { inline_keyboard: menu.tp },
+    })
+  );
+  bot.onText(/\/setstrategy/, (msg) =>
+    safeSend(bot, msg.chat.id, "🧠 Choose a trading strategy:", {
+      reply_markup: { inline_keyboard: menu.strategy },
+    })
+  );
 
-  // Handle inline selections
+  // Handle inline callback selections
   bot.on("callback_query", (query) => {
     const [key, value] = query.data.split(":");
     if (!key || !value) return;
 
     switch (key) {
-      case "asset": config.asset = value; break;
-      case "lot": config.lotSize = Number(value); break;
-      case "sl": config.stopLoss = Number(value); break;
-      case "tp": config.takeProfit = Number(value); break;
-      case "strategy": config.strategy = value; break;
-      default: break;
+      case "asset":
+        config.asset = value;
+        break;
+      case "lot":
+        config.lotSize = Number(value);
+        break;
+      case "sl":
+        config.stopLoss = Number(value);
+        break;
+      case "tp":
+        config.takeProfit = Number(value);
+        break;
+      case "strategy":
+        config.strategy = value;
+        break;
+      default:
+        break;
     }
 
-    bot.answerCallbackQuery(query.id, { text: `✅ ${key.toUpperCase()} updated → ${value}`, show_alert: false });
+    bot.answerCallbackQuery(query.id, {
+      text: `✅ ${key.toUpperCase()} updated → ${value}`,
+      show_alert: false,
+    });
   });
 }
 
