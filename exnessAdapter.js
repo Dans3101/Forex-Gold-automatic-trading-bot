@@ -1,43 +1,45 @@
-// exnessAdapter.js
 // -----------------------------------------------------------------------------
+// ExnessAdapter.js
 // Live Price Adapter using Twelve Data API + Simulated Trading Engine
 // -----------------------------------------------------------------------------
 
 import fetch from "node-fetch";
 
 export default class ExnessAdapter {
-  constructor({ apiKey, useSimulation = true }) {
-    this.apiKey = apiKey || process.env.TWELVE_DATA_API_KEY;
+  constructor({ apiKey = process.env.TWELVE_DATA_API_KEY, useSimulation = true } = {}) {
+    this.apiKey = apiKey;
     this.useSimulation = useSimulation;
     this.connected = false;
     this.balance = 10000; // simulated USD balance
     this.openTrades = [];
     this.baseUrl = "https://api.twelvedata.com";
 
-    console.log("🧩 ExnessAdapter initialized", {
-      simulation: useSimulation,
-      hasApiKey: !!this.apiKey,
+    console.log("🧩 ExnessAdapter initialized:", {
+      simulationMode: useSimulation,
+      apiKeyLoaded: !!this.apiKey,
     });
   }
 
-  /**
-   * Connect to Twelve Data API
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ Connect to Twelve Data API
+  // ---------------------------------------------------------------------------
   async connect() {
     console.log("🔌 Connecting to Twelve Data API...");
-    if (!this.apiKey) throw new Error("❌ Missing TWELVE_DATA_API_KEY in environment!");
+    if (!this.apiKey) throw new Error("❌ Missing TWELVE_DATA_API_KEY in environment variables!");
     this.connected = true;
-    console.log("✅ Connected to Twelve Data API successfully");
+    console.log("✅ Connection established successfully");
     return true;
   }
 
-  /**
-   * Fetch real-time price from Twelve Data API
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ Fetch real-time price from Twelve Data
+  // ---------------------------------------------------------------------------
   async getPrice(symbol = "XAU/USD") {
     if (!this.connected) throw new Error("❌ Adapter not connected. Call connect() first.");
 
-    const url = `${this.baseUrl}/price?symbol=${symbol.replace("/", "")}&apikey=${this.apiKey}`;
+    const formattedSymbol = symbol.replace("/", "");
+    const url = `${this.baseUrl}/price?symbol=${formattedSymbol}&apikey=${this.apiKey}`;
+
     try {
       const res = await fetch(url);
       const data = await res.json();
@@ -48,17 +50,18 @@ export default class ExnessAdapter {
       console.log(`💹 Live price for ${symbol}: ${price}`);
       return price;
     } catch (err) {
-      console.error("⚠️ Error fetching price:", err.message);
-      // fallback simulated price
+      console.error("⚠️ Error fetching live price:", err.message);
+
+      // fallback to simulated price
       const fallback = 1900 + Math.sin(Date.now() / 10000) * 10;
-      console.log(`🔁 Using fallback simulated price: ${fallback.toFixed(2)}`);
+      console.log(`🔁 Using simulated fallback price: ${fallback.toFixed(2)}`);
       return fallback;
     }
   }
 
-  /**
-   * Market open check (Mon–Fri)
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ Check if the market is open (Mon–Fri)
+  // ---------------------------------------------------------------------------
   async isMarketOpen(symbol = "XAU/USD") {
     const day = new Date().getUTCDay(); // 0=Sunday, 6=Saturday
     const open = day !== 0 && day !== 6;
@@ -66,14 +69,15 @@ export default class ExnessAdapter {
     return open;
   }
 
-  /**
-   * Place a simulated trade
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ Place a simulated order
+  // ---------------------------------------------------------------------------
   async placeOrder({ symbol = "XAU/USD", side, lotSize = 0.1, stopLossPrice = null, takeProfitPrice = null }) {
-    if (!this.connected) throw new Error("Adapter not connected");
+    if (!this.connected) throw new Error("❌ Adapter not connected");
 
     const price = await this.getPrice(symbol);
     const id = `TRADE-${Date.now()}`;
+
     const trade = {
       id,
       symbol,
@@ -82,7 +86,7 @@ export default class ExnessAdapter {
       price,
       stopLossPrice,
       takeProfitPrice,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     this.openTrades.push(trade);
@@ -90,12 +94,12 @@ export default class ExnessAdapter {
     return { success: true, id, trade };
   }
 
-  /**
-   * Close a simulated trade
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ Close simulated order
+  // ---------------------------------------------------------------------------
   async closeOrder(orderId) {
-    const found = this.openTrades.find((t) => t.id === orderId);
-    if (!found) {
+    const trade = this.openTrades.find((t) => t.id === orderId);
+    if (!trade) {
       console.log(`⚠️ Order not found: ${orderId}`);
       return { success: false };
     }
@@ -105,31 +109,34 @@ export default class ExnessAdapter {
     return { success: true };
   }
 
-  /**
-   * Get simulated account balance
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ Get simulated account balance
+  // ---------------------------------------------------------------------------
   async getBalance() {
-    console.log(`💰 Account balance: ${this.balance.toFixed(2)} USD`);
+    console.log(`💰 Current balance: ${this.balance.toFixed(2)} USD`);
     return this.balance;
   }
 
-  /**
-   * List simulated open trades
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ List simulated open trades
+  // ---------------------------------------------------------------------------
   async getOpenTrades() {
     console.log(`📑 Open trades (${this.openTrades.length})`);
     return this.openTrades;
   }
 
-  /**
-   * Fetch basic historical candle data from Twelve Data
-   */
+  // ---------------------------------------------------------------------------
+  // ✅ Fetch historical candle data from Twelve Data
+  // ---------------------------------------------------------------------------
   async fetchHistoricCandles(symbol = "XAU/USD", interval = "1min", count = 50) {
-    const url = `${this.baseUrl}/time_series?symbol=${symbol.replace("/", "")}&interval=${interval}&outputsize=${count}&apikey=${this.apiKey}`;
+    const formattedSymbol = symbol.replace("/", "");
+    const url = `${this.baseUrl}/time_series?symbol=${formattedSymbol}&interval=${interval}&outputsize=${count}&apikey=${this.apiKey}`;
+
     try {
       const res = await fetch(url);
       const data = await res.json();
-      if (!data || !data.values) throw new Error("No data returned");
+
+      if (!data || !data.values) throw new Error("No data returned from Twelve Data");
 
       const candles = data.values.map((c) => ({
         open: parseFloat(c.open),
@@ -141,24 +148,27 @@ export default class ExnessAdapter {
       console.log(`📊 Loaded ${candles.length} candles for ${symbol}`);
       return candles.reverse(); // oldest first
     } catch (err) {
-      console.error("⚠️ Error fetching candles:", err.message);
+      console.error("⚠️ Error fetching historical data:", err.message);
       return [];
     }
   }
 }
 
 // -----------------------------------------------------------------------------
-// 🔍 Self-test (run directly with: node exnessAdapter.js)
+// 🧠 Self-test (run directly with: node exnessAdapter.js)
 // -----------------------------------------------------------------------------
 if (import.meta.url === `file://${process.argv[1]}`) {
   (async () => {
-    console.log("🧠 Running live ExnessAdapter self-test...");
+    console.log("🧠 Running ExnessAdapter self-test...");
     const adapter = new ExnessAdapter({ useSimulation: true });
     await adapter.connect();
+
     const price = await adapter.getPrice("XAU/USD");
     const isOpen = await adapter.isMarketOpen();
     const balance = await adapter.getBalance();
+
     if (isOpen) await adapter.placeOrder({ symbol: "XAU/USD", side: "BUY", lotSize: 0.1 });
+
     console.log("✅ Self-test complete:", { price, balance, marketOpen: isOpen });
   })();
 }
