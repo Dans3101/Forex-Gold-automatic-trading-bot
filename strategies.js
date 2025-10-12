@@ -1,21 +1,23 @@
 // strategies.js
-import technicalindicators from "technicalindicators";
+import { SMA, BollingerBands, MACD } from "technicalindicators";
 
 /**
- * Each strategy below receives market data (candles) like:
- * [{ time, open, high, low, close }, ...]
- * The adapter will fetch this data live from Exness API or simulation.
+ * This file defines trading strategies that analyze price candles and
+ * return a signal: "BUY", "SELL", or "HOLD".
+ * 
+ * It supports both simulated and live MetaApi candle data.
  */
 
 // --- Moving Average Crossover ---
 export function movingAverageCrossover(data) {
   if (!data || data.length < 50) return "HOLD";
   const closes = data.map(c => c.close);
-  const shortMA = technicalindicators.SMA.calculate({ period: 10, values: closes });
-  const longMA = technicalindicators.SMA.calculate({ period: 30, values: closes });
 
-  const shortNow = shortMA[shortMA.length - 1];
-  const longNow = longMA[longMA.length - 1];
+  const shortMA = SMA.calculate({ period: 10, values: closes });
+  const longMA = SMA.calculate({ period: 30, values: closes });
+
+  const shortNow = shortMA.at(-1);
+  const longNow = longMA.at(-1);
   if (!shortNow || !longNow) return "HOLD";
 
   if (shortNow > longNow) return "BUY";
@@ -27,14 +29,15 @@ export function movingAverageCrossover(data) {
 export function bollingerBands(data) {
   if (!data || data.length < 20) return "HOLD";
   const closes = data.map(c => c.close);
-  const bb = technicalindicators.BollingerBands.calculate({
+
+  const bb = BollingerBands.calculate({
     period: 20,
     values: closes,
     stdDev: 2,
   });
 
-  const last = bb[bb.length - 1];
-  const price = closes[closes.length - 1];
+  const last = bb.at(-1);
+  const price = closes.at(-1);
   if (!last) return "HOLD";
 
   if (price < last.lower) return "BUY";
@@ -46,7 +49,8 @@ export function bollingerBands(data) {
 export function macdStrategy(data) {
   if (!data || data.length < 30) return "HOLD";
   const closes = data.map(c => c.close);
-  const macd = technicalindicators.MACD.calculate({
+
+  const macd = MACD.calculate({
     values: closes,
     fastPeriod: 12,
     slowPeriod: 26,
@@ -55,7 +59,7 @@ export function macdStrategy(data) {
     SimpleMASignal: false,
   });
 
-  const last = macd[macd.length - 1];
+  const last = macd.at(-1);
   if (!last) return "HOLD";
 
   if (last.MACD > last.signal) return "BUY";
@@ -63,19 +67,19 @@ export function macdStrategy(data) {
   return "HOLD";
 }
 
-// --- Trend Following (Simple) ---
+// --- Trend Following (Simple Average) ---
 export function trendFollowing(data) {
   if (!data || data.length < 15) return "HOLD";
   const closes = data.map(c => c.close);
   const avg = closes.reduce((a, b) => a + b, 0) / closes.length;
-  const lastPrice = closes[closes.length - 1];
+  const lastPrice = closes.at(-1);
 
   if (lastPrice > avg) return "BUY";
   if (lastPrice < avg) return "SELL";
   return "HOLD";
 }
 
-// --- Support / Resistance Breakout ---
+// --- Support/Resistance Breakout ---
 export function supportResistance(data) {
   if (!data || data.length < 40) return "HOLD";
   const closes = data.map(c => c.close);
@@ -83,14 +87,14 @@ export function supportResistance(data) {
 
   const support = Math.min(...recent);
   const resistance = Math.max(...recent);
-  const lastPrice = closes[closes.length - 1];
+  const lastPrice = closes.at(-1);
 
   if (lastPrice <= support) return "BUY"; // bounce from support
   if (lastPrice >= resistance) return "SELL"; // rejection at resistance
   return "HOLD";
 }
 
-// --- Combined Decision ---
+// --- Combined Signal ---
 export function combinedDecision(data) {
   const results = [
     movingAverageCrossover(data),
@@ -109,35 +113,66 @@ export function combinedDecision(data) {
 }
 
 /**
- * applyStrategy() → Unified strategy entry point.
+ * Unified Strategy Application
  * 
- * @param {string} strategyName - selected strategy name from config
- * @param {object} adapter - ExnessAdapter instance
- * @param {string} symbol - trading pair (e.g. XAUUSD)
- * 
- * Returns "BUY" | "SELL" | "HOLD"
+ * @param {string} strategyName - name from config (e.g. "movingAverage")
+ * @param {object} adapter - ExnessAdapter or MetaApi adapter instance
+ * @param {string} symbol - trading pair symbol (e.g. "XAUUSD")
  */
 export async function applyStrategy(strategyName, adapter, symbol) {
   try {
-    // ✅ Fetch 100 latest candles (1-minute timeframe)
+    // Fetch last 100 candles
     const candles = await adapter.fetchHistoricCandles(symbol, "1m", 100);
+    if (!candles || candles.length === 0) {
+      console.warn("⚠️ No candle data available for", symbol);
+      return "HOLD";
+    }
 
+    let decision;
     switch (strategyName) {
       case "movingAverage":
-        return movingAverageCrossover(candles);
+        decision = movingAverageCrossover(candles);
+        break;
       case "bollinger":
-        return bollingerBands(candles);
+        decision = bollingerBands(candles);
+        break;
       case "macd":
-        return macdStrategy(candles);
+        decision = macdStrategy(candles);
+        break;
       case "trend":
-        return trendFollowing(candles);
+        decision = trendFollowing(candles);
+        break;
       case "supportResistance":
-        return supportResistance(candles);
+        decision = supportResistance(candles);
+        break;
       default:
-        return combinedDecision(candles);
+        decision = combinedDecision(candles);
     }
+
+    console.log(`📊 Strategy '${strategyName}' decision for ${symbol}: ${decision}`);
+    return decision;
   } catch (err) {
-    console.error("❌ Strategy error:", err.message);
+    console.error("❌ Strategy execution failed:", err.message);
     return "HOLD";
   }
+}
+
+// -----------------------------------------------------------------------------
+// 🔍 Self-test mode — run `node strategies.js` directly to test
+// -----------------------------------------------------------------------------
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const fakeData = Array.from({ length: 100 }, (_, i) => ({
+    time: Date.now() - i * 60000,
+    open: 1900 + Math.sin(i / 5) * 10,
+    high: 1910 + Math.sin(i / 5) * 10,
+    low: 1890 + Math.sin(i / 5) * 10,
+    close: 1900 + Math.sin(i / 5) * 10 + Math.random() * 5,
+  }));
+
+  console.log("🧠 Running local strategy tests...");
+  console.log("MA:", movingAverageCrossover(fakeData));
+  console.log("BB:", bollingerBands(fakeData));
+  console.log("MACD:", macdStrategy(fakeData));
+  console.log("Trend:", trendFollowing(fakeData));
+  console.log("Combined:", combinedDecision(fakeData));
 }
