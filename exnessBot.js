@@ -11,10 +11,10 @@ import { applyStrategy } from "./strategies.js";
 let botActive = false;
 let intervalId = null;
 
-// ✅ Initialize the live adapter (with API key from environment)
+// ✅ Initialize adapter (with your Twelve Data API key)
 const adapter = new ExnessAdapter({
   apiKey: process.env.TWELVE_DATA_API_KEY,
-  useSimulation: true, // still simulates trades for safety
+  useSimulation: true, // trades are simulated for safety
 });
 
 /**
@@ -30,7 +30,7 @@ async function startExnessBot(bot, chatId) {
     botActive = true;
     console.log("🚀 Starting Exness Bot...");
 
-    // Connect to live Twelve Data API
+    // Connect to Twelve Data
     const connected = await adapter.connect();
     if (!connected) {
       await safeSend(bot, chatId, "❌ Failed to connect to Twelve Data API. Check API key.");
@@ -40,11 +40,15 @@ async function startExnessBot(bot, chatId) {
 
     await safeSend(bot, chatId, "📈 Connected to Twelve Data API. Fetching live gold price...");
 
-    // ⏱ Execute every 15 seconds
+    // Store starting balance
+    const startBalance = await adapter.getBalance();
+
+    // ⏱ Fetch updates every 15 seconds
     intervalId = setInterval(async () => {
       if (!botActive) return;
 
       try {
+        // Check if market is open
         const marketOpen = await adapter.isMarketOpen(config.asset);
         config.marketOpen = marketOpen;
 
@@ -53,10 +57,13 @@ async function startExnessBot(bot, chatId) {
           return;
         }
 
+        // Get latest market data
         const balance = await adapter.getBalance();
         const price = await adapter.getPrice(config.asset);
         const candles = await adapter.fetchHistoricCandles(config.asset);
-        const decision = applyStrategy(candles);
+
+        // ✅ FIXED: Await strategy result
+        const decision = await applyStrategy(candles);
 
         console.log(
           `📊 ${config.asset} | Decision: ${decision} | Balance: ${balance.toFixed(
@@ -64,6 +71,7 @@ async function startExnessBot(bot, chatId) {
           )} | Price: ${price.toFixed(2)}`
         );
 
+        // Send periodic update
         await safeSend(
           bot,
           chatId,
@@ -79,7 +87,7 @@ async function startExnessBot(bot, chatId) {
           { parse_mode: "Markdown" }
         );
 
-        // 🧠 Decision handling
+        // 🧠 Decision Handling
         if (decision === "BUY" || decision === "SELL") {
           const order = await adapter.placeOrder({
             symbol: config.asset,
@@ -89,23 +97,27 @@ async function startExnessBot(bot, chatId) {
 
           if (order.success) {
             console.log(`✅ Trade executed: ${decision} ${config.asset}`);
-            await safeSend(bot, chatId, `✅ *Trade executed:* ${decision} ${config.asset}`, {
-              parse_mode: "Markdown",
-            });
+            await safeSend(
+              bot,
+              chatId,
+              `✅ *Trade executed:* ${decision} ${config.asset}`,
+              { parse_mode: "Markdown" }
+            );
           } else {
             console.error("❌ Order failed:", order.error);
           }
         }
 
-        // 🛑 Risk management
-        if (balance <= 0 || balance < config.stopLoss) {
+        // 🛑 Risk management (optional: remove auto-stop)
+        if (balance <= 0 || balance < startBalance * (1 - config.stopLoss / 100)) {
+          await safeSend(bot, chatId, "🛑 Stop Loss reached! Bot will pause for safety.");
+          // comment the next line if you don’t want auto-stop
           await stopExnessBot(bot, chatId);
-          await safeSend(bot, chatId, "🛑 Bot stopped — Stop Loss triggered.");
         }
 
-        if (balance >= config.takeProfit) {
-          await stopExnessBot(bot, chatId);
-          await safeSend(bot, chatId, "🎯 Bot stopped — Take Profit target reached.");
+        if (config.takeProfit > 0 && balance >= startBalance + config.takeProfit) {
+          await safeSend(bot, chatId, "🎯 Take Profit reached! Bot will continue monitoring.");
+          // ⚠️ Removed stop here for continuous operation
         }
       } catch (err) {
         console.error("❌ Bot loop error:", err.message);
@@ -133,7 +145,7 @@ async function stopExnessBot(bot, chatId) {
     intervalId = null;
 
     console.log("🛑 Bot stopped.");
-    await safeSend(bot, chatId, "🛑 Bot stopped.");
+    await safeSend(bot, chatId, "🛑 Bot stopped manually.");
   } catch (err) {
     console.error("❌ stopExnessBot() error:", err.message);
   }
@@ -186,7 +198,7 @@ function setupTelegramHandlers(bot) {
     }
   });
 
-  // Config menus (unchanged)
+  // Configuration menus
   const menu = {
     asset: [
       [{ text: "XAUUSD (Gold)", callback_data: "asset:XAUUSD" }],
@@ -215,6 +227,7 @@ function setupTelegramHandlers(bot) {
     ],
   };
 
+  // Inline menus
   bot.onText(/\/setasset/, (msg) =>
     safeSend(bot, msg.chat.id, "💱 Choose a trading asset:", {
       reply_markup: { inline_keyboard: menu.asset },
@@ -241,7 +254,7 @@ function setupTelegramHandlers(bot) {
     })
   );
 
-  // Handle inline callback selections
+  // Handle inline selections
   bot.on("callback_query", (query) => {
     const [key, value] = query.data.split(":");
     if (!key || !value) return;
