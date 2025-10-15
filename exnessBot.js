@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // exnessBot.js
-// Live Gold Trading Bot — Using Finnhub API via ExnessAdapter.js
+// Live Gold Trading Bot — Using Finnhub API (via ExnessAdapter.js)
 // -----------------------------------------------------------------------------
 
 import { config } from "./config.js";
@@ -10,11 +10,13 @@ import { applyStrategy } from "./strategies.js";
 let botActive = false;
 let intervalId = null;
 let lastDecision = "HOLD";
+let lastPrice = null;
+let errorCount = 0;
 
 // ✅ Initialize Finnhub Adapter
 const adapter = new ExnessAdapter({
   apiKey: process.env.FINNHUB_API_KEY,
-  useSimulation: false, // true for test, false for real
+  useSimulation: false, // Set true for test mode
 });
 
 /**
@@ -30,128 +32,135 @@ async function safeSend(bot, chatId, text, options = {}) {
 }
 
 /**
- * ✅ Start Trading Bot
+ * ✅ Core loop to fetch data and make trade decisions
  */
-async function startExnessBot(bot, chatId) {
+async function tradingLoop(bot, chatId) {
   try {
-    if (botActive) {
-      await safeSend(bot, chatId, "⚠️ Bot is already running.");
+    const marketOpen = await adapter.isMarketOpen();
+    if (!marketOpen) {
+      console.log("⏸ Market closed — waiting...");
       return;
     }
 
-    botActive = true;
-    console.log("🚀 Starting Exness Bot (Finnhub)...");
-    await safeSend(bot, chatId, "🚀 Starting trading bot...");
+    const [price, candles, balance] = await Promise.all([
+      adapter.getPrice(config.asset),
+      adapter.fetchHistoricCandles(config.asset),
+      adapter.getBalance(),
+    ]);
 
-    // Connect to Finnhub
-    const connected = await adapter.connect();
-    if (!connected) {
-      await safeSend(bot, chatId, "❌ Failed to connect to Finnhub API. Check API key.");
-      botActive = false;
-      return;
+    if (!price || !candles?.length) {
+      throw new Error("Invalid data from Finnhub.");
     }
 
-    await safeSend(bot, chatId, "✅ Connected to Finnhub API. Monitoring live gold prices...");
+    // Apply strategy to get decision
+    const decision = await applyStrategy(candles);
 
-    const startBalance = await adapter.getBalance();
+    console.log(
+      `📊 ${config.asset} | ${decision} | Price: ${price.toFixed(2)} | Balance: ${balance.toFixed(2)}`
+    );
 
-    // ⏱ Run analysis every 30 seconds
-    intervalId = setInterval(async () => {
-      if (!botActive) return;
+    // Skip HOLD signals unless trend changes
+    if (decision !== lastDecision && (decision === "BUY" || decision === "SELL")) {
+      lastDecision = decision;
 
-      try {
-        const marketOpen = await adapter.isMarketOpen();
-        if (!marketOpen) {
-          console.log("⏸ Market closed — waiting...");
-          return;
-        }
+      const order = await adapter.placeOrder({
+        symbol: config.asset,
+        side: decision,
+        lotSize: config.lotSize,
+      });
 
-        const balance = await adapter.getBalance();
-        const price = await adapter.getPrice(config.asset);
-        const candles = await adapter.fetchHistoricCandles(config.asset);
-
-        // Apply strategy logic
-        const decision = await applyStrategy(candles);
-
-        console.log(
-          `📊 ${config.asset} | Decision: ${decision} | Price: ${price.toFixed(2)} | Balance: ${balance.toFixed(2)}`
-        );
-
-        // 🧠 Only act if decision changes
-        if (decision !== lastDecision && (decision === "BUY" || decision === "SELL")) {
-          lastDecision = decision;
-
-          const order = await adapter.placeOrder({
-            symbol: config.asset,
-            side: decision,
-            lotSize: config.lotSize,
-          });
-
-          if (order.success) {
-            await safeSend(
-              bot,
-              chatId,
-              `🚨 *${decision} Signal Triggered!*\n\n` +
-                `Asset: *${config.asset}*\n` +
-                `Price: *${price.toFixed(2)}*\n` +
-                `Lot: *${config.lotSize}*\n` +
-                `Balance: *${balance.toFixed(2)} USD*`,
-              { parse_mode: "Markdown" }
-            );
-          }
-        }
-
-        // 🧾 Regular short update (every loop)
+      if (order.success) {
         await safeSend(
           bot,
           chatId,
-          `📈 *Live Update*\n\n` +
-            `Asset: *${config.asset}*\n` +
-            `Price: *${price.toFixed(2)}*\n` +
-            `Decision: *${decision}*\n` +
-            `Lot: *${config.lotSize}*\n` +
-            `Balance: *${balance.toFixed(2)} USD*`,
+          `🚨 *${decision} SIGNAL TRIGGERED!*\n\n` +
+            `💱 Asset: *${config.asset}*\n` +
+            `💰 Balance: *${balance.toFixed(2)} USD*\n` +
+            `💹 Price: *${price.toFixed(2)}*\n` +
+            `📦 Lot: *${config.lotSize}*\n` +
+            `🧠 Strategy: *${config.strategy}*`,
           { parse_mode: "Markdown" }
         );
-
-        // Simulate active trades
-        await adapter.simulateProfitLoss();
-
-      } catch (err) {
-        console.error("❌ Bot loop error:", err.message);
-        await safeSend(bot, chatId, `⚠️ Bot Error: ${err.message}`);
       }
-    }, 30000); // every 30 seconds
+    }
 
+    // Send small update if price changed a lot
+    if (!lastPrice || Math.abs(price - lastPrice) / lastPrice > 0.002) {
+      await safeSend(
+        bot,
+        chatId,
+        `📈 *Market Update*\n\n` +
+          `💱 Asset: *${config.asset}*\n` +
+          `💹 Price: *${price.toFixed(2)}*\n` +
+          `🧭 Decision: *${decision}*\n` +
+          `💰 Balance: *${balance.toFixed(2)} USD*`,
+        { parse_mode: "Markdown" }
+      );
+      lastPrice = price;
+    }
+
+    // Simulate profit/loss
+    await adapter.simulateProfitLoss();
+    errorCount = 0; // reset after success
   } catch (err) {
-    console.error("❌ startExnessBot() error:", err.message);
-    await safeSend(bot, chatId, `⚠️ Start error: ${err.message}`);
+    console.error("❌ Bot loop error:", err.message);
+    errorCount++;
+    if (errorCount > 3) {
+      console.log("⚠️ Too many errors — attempting reconnection...");
+      await adapter.connect();
+      errorCount = 0;
+    }
   }
+}
+
+/**
+ * ✅ Start Trading Bot
+ */
+async function startExnessBot(bot, chatId) {
+  if (botActive) {
+    await safeSend(bot, chatId, "⚠️ Bot is already running.");
+    return;
+  }
+
+  botActive = true;
+  console.log("🚀 Starting Exness Bot (Finnhub)...");
+  await safeSend(bot, chatId, "🚀 Starting trading bot...");
+
+  const connected = await adapter.connect();
+  if (!connected) {
+    await safeSend(bot, chatId, "❌ Failed to connect to Finnhub API. Check your API key.");
+    botActive = false;
+    return;
+  }
+
+  await safeSend(bot, chatId, "✅ Connected to Finnhub API. Monitoring live gold prices...");
+  console.log("✅ Connected to Finnhub API.");
+
+  // Run every 30 seconds
+  intervalId = setInterval(async () => {
+    if (botActive) await tradingLoop(bot, chatId);
+  }, 30000);
 }
 
 /**
  * ✅ Stop Bot
  */
 async function stopExnessBot(bot, chatId) {
-  try {
-    if (!botActive) {
-      await safeSend(bot, chatId, "⚠️ Bot is not running.");
-      return;
-    }
-
-    botActive = false;
-    if (intervalId) clearInterval(intervalId);
-    intervalId = null;
-
-    console.log("🛑 Bot stopped.");
-    await safeSend(bot, chatId, "🛑 Bot stopped manually.");
-  } catch (err) {
-    console.error("❌ stopExnessBot() error:", err.message);
+  if (!botActive) {
+    await safeSend(bot, chatId, "⚠️ Bot is not running.");
+    return;
   }
+
+  botActive = false;
+  clearInterval(intervalId);
+  intervalId = null;
+
+  console.log("🛑 Bot stopped.");
+  await safeSend(bot, chatId, "🛑 Bot stopped manually.");
 }
 
 /**
- * ✅ Telegram Controls
+ * ✅ Telegram Commands
  */
 function setupTelegramHandlers(bot) {
   bot.onText(/\/startbot/, (msg) => startExnessBot(bot, msg.chat.id));
@@ -167,17 +176,17 @@ function setupTelegramHandlers(bot) {
       const statusMsg =
         `🛰 *Bot Status*\n\n` +
         `🔗 Connection: *${connected ? "Connected ✅" : "Disconnected ❌"}*\n` +
-        `🟢 Active: *${botActive ? "Running" : "Stopped"}*\n` +
-        `💱 Asset: *${config.asset}*\n` +
-        `💰 Balance: *${balance.toFixed(2)} USD*\n` +
-        `💹 Price: *${price.toFixed(2)}*\n` +
         `⚙️ Strategy: *${config.strategy}*\n` +
+        `💱 Asset: *${config.asset}*\n` +
+        `💹 Price: *${price.toFixed(2)}*\n` +
+        `💰 Balance: *${balance.toFixed(2)} USD*\n` +
         `📊 Lot Size: *${config.lotSize}*\n` +
+        `🟢 Active: *${botActive ? "Running ✅" : "Stopped ❌"}*\n` +
         `🕒 Market: *${marketOpen ? "OPEN ✅" : "CLOSED ❌"}*`;
 
       await safeSend(bot, msg.chat.id, statusMsg, { parse_mode: "Markdown" });
     } catch (err) {
-      await safeSend(bot, msg.chat.id, `⚠️ Error fetching status: ${err.message}`);
+      await safeSend(bot, msg.chat.id, `⚠️ Status error: ${err.message}`);
     }
   });
 }
