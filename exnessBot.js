@@ -7,15 +7,27 @@ import { config } from "./config.js";
 import ExnessAdapter from "./exnessAdapter.js";
 import { applyStrategy } from "./strategies.js";
 
-// Bot state
 let botActive = false;
 let intervalId = null;
+let lastDecision = "HOLD";
 
 // ✅ Initialize Finnhub Adapter
 const adapter = new ExnessAdapter({
   apiKey: process.env.FINNHUB_API_KEY,
-  useSimulation: true, // Set to false later for live trading
+  useSimulation: false, // true for test, false for real
 });
+
+/**
+ * ✅ Safe Telegram message sender
+ */
+async function safeSend(bot, chatId, text, options = {}) {
+  try {
+    if (!bot || !chatId) return;
+    await bot.sendMessage(chatId, text, options);
+  } catch (err) {
+    console.error("⚠️ Telegram send error:", err.message);
+  }
+}
 
 /**
  * ✅ Start Trading Bot
@@ -39,41 +51,36 @@ async function startExnessBot(bot, chatId) {
       return;
     }
 
-    await safeSend(bot, chatId, "✅ Connected to Finnhub API. Monitoring live gold price...");
+    await safeSend(bot, chatId, "✅ Connected to Finnhub API. Monitoring live gold prices...");
 
-    // Store starting balance
     const startBalance = await adapter.getBalance();
 
-    // ⏱ Run every 10 seconds
+    // ⏱ Run analysis every 30 seconds
     intervalId = setInterval(async () => {
       if (!botActive) return;
 
       try {
-        // Check if market is open
         const marketOpen = await adapter.isMarketOpen();
-        config.marketOpen = marketOpen;
-
         if (!marketOpen) {
-          console.log("⏸ Market closed, waiting...");
+          console.log("⏸ Market closed — waiting...");
           return;
         }
 
-        // Get latest data
         const balance = await adapter.getBalance();
         const price = await adapter.getPrice(config.asset);
         const candles = await adapter.fetchHistoricCandles(config.asset);
 
-        // Apply trading strategy
+        // Apply strategy logic
         const decision = await applyStrategy(candles);
 
         console.log(
-          `📊 ${config.asset} | Decision: ${decision} | Balance: ${balance.toFixed(
-            2
-          )} | Price: ${price.toFixed(2)}`
+          `📊 ${config.asset} | Decision: ${decision} | Price: ${price.toFixed(2)} | Balance: ${balance.toFixed(2)}`
         );
 
-        // 🧠 Decision Handling (BUY / SELL)
-        if (decision === "BUY" || decision === "SELL") {
+        // 🧠 Only act if decision changes
+        if (decision !== lastDecision && (decision === "BUY" || decision === "SELL")) {
+          lastDecision = decision;
+
           const order = await adapter.placeOrder({
             symbol: config.asset,
             side: decision,
@@ -81,7 +88,6 @@ async function startExnessBot(bot, chatId) {
           });
 
           if (order.success) {
-            console.log(`✅ ${decision} signal triggered!`);
             await safeSend(
               bot,
               chatId,
@@ -95,7 +101,7 @@ async function startExnessBot(bot, chatId) {
           }
         }
 
-        // 💬 Periodic update
+        // 🧾 Regular short update (every loop)
         await safeSend(
           bot,
           chatId,
@@ -104,19 +110,19 @@ async function startExnessBot(bot, chatId) {
             `Price: *${price.toFixed(2)}*\n` +
             `Decision: *${decision}*\n` +
             `Lot: *${config.lotSize}*\n` +
-            `Stop Loss: *${config.stopLoss}%*\n` +
-            `Take Profit: *${config.takeProfit} USD*\n` +
             `Balance: *${balance.toFixed(2)} USD*`,
           { parse_mode: "Markdown" }
         );
 
-        // 🧮 Simulate running trades
+        // Simulate active trades
         await adapter.simulateProfitLoss();
+
       } catch (err) {
         console.error("❌ Bot loop error:", err.message);
         await safeSend(bot, chatId, `⚠️ Bot Error: ${err.message}`);
       }
-    }, 10000); // every 10 seconds
+    }, 30000); // every 30 seconds
+
   } catch (err) {
     console.error("❌ startExnessBot() error:", err.message);
     await safeSend(bot, chatId, `⚠️ Start error: ${err.message}`);
@@ -124,7 +130,7 @@ async function startExnessBot(bot, chatId) {
 }
 
 /**
- * ✅ Stop Trading Bot
+ * ✅ Stop Bot
  */
 async function stopExnessBot(bot, chatId) {
   try {
@@ -145,26 +151,12 @@ async function stopExnessBot(bot, chatId) {
 }
 
 /**
- * ✅ Safe Telegram send wrapper
- */
-async function safeSend(bot, chatId, text, options = {}) {
-  try {
-    if (!bot || !chatId) return;
-    await bot.sendMessage(chatId, text, options);
-  } catch (err) {
-    console.error("⚠️ Telegram send error:", err.message);
-  }
-}
-
-/**
  * ✅ Telegram Controls
  */
 function setupTelegramHandlers(bot) {
-  // Core controls
   bot.onText(/\/startbot/, (msg) => startExnessBot(bot, msg.chat.id));
   bot.onText(/\/stopbot/, (msg) => stopExnessBot(bot, msg.chat.id));
 
-  // Status command
   bot.onText(/\/status/, async (msg) => {
     try {
       const connected = adapter.connected;
