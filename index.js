@@ -1,6 +1,6 @@
 // index.js
 // -----------------------------------------------------------------------------
-// Exness Gold Trading Bot - Telegram Interface + Twelve Data Adapter Integration
+// Exness Gold Trading Bot — Telegram Interface + Finnhub Live Data Integration
 // -----------------------------------------------------------------------------
 
 import express from "express";
@@ -8,7 +8,7 @@ import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import { startExnessBot, stopExnessBot, setupTelegramHandlers } from "./exnessBot.js";
 import { telegramToken, telegramChatId, config } from "./config.js";
-import ExnessAdapter from "./exnessAdapter.js";
+import FinnhubAdapter from "./finnhubAdapter.js"; // ✅ new adapter (to replace exnessAdapter.js)
 
 dotenv.config();
 
@@ -22,24 +22,23 @@ let bot;
 let adapter;
 
 // -----------------------------------------------------------------------------
-// ✅ Initialize Twelve Data (ExnessAdapter) Connection
+// ✅ Initialize Finnhub Adapter
 // -----------------------------------------------------------------------------
-async function initExness() {
+async function initFinnhub() {
   try {
-    adapter = new ExnessAdapter({
-      apiKey: process.env.TWELVE_DATA_API_KEY,
-      useSimulation: config.simulationMode, // from config.js
+    adapter = new FinnhubAdapter({
+      apiKey: process.env.FINNHUB_API_KEY, // ✅ your new API key from Finnhub
+      useSimulation: config.simulationMode,
     });
 
-    console.log("🔌 Connecting to Twelve Data API...");
+    console.log("🔌 Connecting to Finnhub API...");
     await adapter.connect();
+    console.log("✅ Connected successfully to Finnhub!");
 
-    console.log("✅ Connected successfully to Twelve Data!");
-    console.log("🧪 Running connection test...");
     const balance = await adapter.getBalance();
     console.log(`💰 Simulated Account Balance: ${balance.toFixed(2)} USD`);
   } catch (err) {
-    console.error("❌ Failed to initialize ExnessAdapter:", err.message);
+    console.error("❌ Failed to initialize FinnhubAdapter:", err.message);
   }
 }
 
@@ -56,25 +55,25 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // -----------------------------------------------------------------------------
-// ✅ Bot Commands Menu
+// ✅ Bot Commands
 // -----------------------------------------------------------------------------
 bot.setMyCommands([
-  { command: "/start", description: "Show welcome message & buttons" },
-  { command: "/exstart", description: "Start Exness (Twelve Data) trading bot" },
-  { command: "/exstop", description: "Stop Exness trading bot" },
+  { command: "/start", description: "Show welcome message & menu" },
+  { command: "/exstart", description: "Start Finnhub (Exness) trading bot" },
+  { command: "/exstop", description: "Stop trading bot" },
   { command: "/config", description: "Show current bot configuration" },
-  { command: "/balance", description: "Check simulated account balance" },
+  { command: "/balance", description: "Check account balance" },
   { command: "/open", description: "Show open trades" },
 ]);
 
 // -----------------------------------------------------------------------------
-// ✅ /start Message with Interactive Buttons
+// ✅ /start Message with Inline Buttons
 // -----------------------------------------------------------------------------
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   console.log(`📲 User ${chatId} started bot session`);
 
-  bot.sendMessage(chatId, `👋 Welcome to your Exness Gold Trading Bot!`, {
+  bot.sendMessage(chatId, `👋 Welcome to your Exness Gold Trading Bot (Finnhub version)!`, {
     reply_markup: {
       inline_keyboard: [
         [
@@ -107,17 +106,17 @@ bot.on("callback_query", async (query) => {
   try {
     switch (action) {
       case "exstart":
-        await startExnessBot(bot, chatId, adapter);
-        bot.sendMessage(chatId, "✅ Exness trading bot started!");
+        await startExnessBot(bot, chatId, adapter); // pass Finnhub adapter
+        await bot.sendMessage(chatId, "✅ Finnhub trading bot started!");
         break;
 
       case "exstop":
-        stopExnessBot();
-        bot.sendMessage(chatId, "🛑 Exness trading bot stopped.");
+        await stopExnessBot(bot, chatId);
+        await bot.sendMessage(chatId, "🛑 Trading bot stopped.");
         break;
 
       case "config":
-        bot.sendMessage(
+        await bot.sendMessage(
           chatId,
           `⚙️ *Current Config:*\n` +
             `Asset: *${config.asset}*\n` +
@@ -132,15 +131,15 @@ bot.on("callback_query", async (query) => {
 
       case "balance":
         const balance = await adapter.getBalance();
-        bot.sendMessage(chatId, `💵 *Current Balance:* ${balance.toFixed(2)} USD`, {
+        await bot.sendMessage(chatId, `💵 *Current Balance:* ${balance.toFixed(2)} USD`, {
           parse_mode: "Markdown",
         });
         break;
 
       case "open":
         const trades = await adapter.getOpenTrades();
-        if (!trades || trades.length === 0) {
-          bot.sendMessage(chatId, "📭 No open trades currently.");
+        if (!trades?.length) {
+          await bot.sendMessage(chatId, "📭 No open trades currently.");
         } else {
           const tradeList = trades
             .map(
@@ -148,25 +147,25 @@ bot.on("callback_query", async (query) => {
                 `#${t.id}\nSymbol: ${t.symbol}\nSide: ${t.side}\nPrice: ${t.price}\nLot: ${t.lotSize}`
             )
             .join("\n\n");
-          bot.sendMessage(chatId, `📋 *Open Trades:*\n\n${tradeList}`, {
+          await bot.sendMessage(chatId, `📋 *Open Trades:*\n\n${tradeList}`, {
             parse_mode: "Markdown",
           });
         }
         break;
 
       default:
-        bot.sendMessage(chatId, "❌ Unknown action selected.");
+        await bot.sendMessage(chatId, "❌ Unknown action selected.");
     }
   } catch (err) {
-    console.error(`⚠️ Error processing action "${action}":`, err.message);
-    bot.sendMessage(chatId, `⚠️ An error occurred: ${err.message}`);
+    console.error(`⚠️ Error processing "${action}":`, err.message);
+    await bot.sendMessage(chatId, `⚠️ Error: ${err.message}`);
   }
 
   bot.answerCallbackQuery(query.id);
 });
 
 // -----------------------------------------------------------------------------
-// ✅ Setup Custom Telegram Handlers
+// ✅ Setup Additional Telegram Handlers
 // -----------------------------------------------------------------------------
 setupTelegramHandlers(bot, telegramChatId);
 
@@ -179,9 +178,9 @@ app.post(`/webhook/${telegramToken}`, (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// ✅ Start Express Server + Initialize Twelve Data
+// ✅ Start Express Server + Initialize Finnhub
 // -----------------------------------------------------------------------------
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  await initExness();
+  await initFinnhub();
 });
