@@ -1,7 +1,7 @@
 {
   "name": "exness-gold-trading-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for Exness trading automation on XAUUSD with multiple strategies",
+  "description": "Telegram bot for Exness trading automation on XAUUSD with live Finnhub API integration and multiple strategies",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -31,7 +31,10 @@
     "xauusd",
     "gold",
     "automation",
-    "strategies"
+    "strategies",
+    "finnhub",
+    "realtime",
+    "signals"
   ],
   "author": "Dans3101",
   "license": "MIT"
