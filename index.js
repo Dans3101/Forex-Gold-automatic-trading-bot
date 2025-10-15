@@ -8,7 +8,7 @@ import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import { startExnessBot, stopExnessBot, setupTelegramHandlers } from "./exnessBot.js";
 import { telegramToken, telegramChatId, config } from "./config.js";
-import FinnhubAdapter from "./finnhubAdapter.js"; // ✅ new adapter (to replace exnessAdapter.js)
+import { startFinnhubBot } from "./finnhubAdapter.js"; // ✅ fixed import (named export)
 
 dotenv.config();
 
@@ -26,13 +26,8 @@ let adapter;
 // -----------------------------------------------------------------------------
 async function initFinnhub() {
   try {
-    adapter = new FinnhubAdapter({
-      apiKey: process.env.FINNHUB_API_KEY, // ✅ your new API key from Finnhub
-      useSimulation: config.simulationMode,
-    });
-
     console.log("🔌 Connecting to Finnhub API...");
-    await adapter.connect();
+    adapter = await startFinnhubBot({ apiKey: process.env.FINNHUB_API_KEY }); // use helper
     console.log("✅ Connected successfully to Finnhub!");
 
     const balance = await adapter.getBalance();
