@@ -11,17 +11,18 @@ const config = {
   takeProfit: 100,               // Fixed take profit in USD
   asset: "XAUUSD",               // Default symbol (Gold)
   marketOpen: true,              // Updated dynamically
-  simulationMode: false           // false = use real Twelve Data prices
+  simulationMode: false          // false = use real Finnhub prices
 };
 
 // ✅ Telegram bot configuration
 const telegramToken = process.env.TELEGRAM_TOKEN;
 const telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
-// ✅ Twelve Data API configuration
-const twelveData = {
-  apiKey: process.env.TWELVE_DATA_API_KEY,   // your Twelve Data key
-  baseUrl: "https://api.twelvedata.com",
+// ✅ Finnhub API configuration
+const finnhub = {
+  apiKey: process.env.FINNHUB_API_KEY,        // Your Finnhub key
+  baseUrl: "https://finnhub.io/api/v1",
+  wsUrl: "wss://ws.finnhub.io?token=" + process.env.FINNHUB_API_KEY
 };
 
 // ✅ Function to toggle between simulation / live data
@@ -31,4 +32,4 @@ function toggleSimulationMode(useSim = true) {
 }
 
 // ✅ Export everything
-export { config, telegramToken, telegramChatId, twelveData, toggleSimulationMode };
+export { config, telegramToken, telegramChatId, finnhub, toggleSimulationMode };
