@@ -1,72 +1,101 @@
 // -----------------------------------------------------------------------------
 // ExnessAdapter.js
-// Real-time Gold Price Adapter using Twelve Data API + Simulated Trading Engine
+// Real-time Gold Price Adapter using Finnhub API + Simulated Trading Engine
 // -----------------------------------------------------------------------------
 
+import WebSocket from "ws";
 import fetch from "node-fetch";
 
 export default class ExnessAdapter {
   constructor({
-    apiKey = process.env.TWELVE_DATA_API_KEY,
-    useSimulation = true
+    apiKey = process.env.FINNHUB_API_KEY,
+    useSimulation = true,
   } = {}) {
     this.apiKey = apiKey;
     this.useSimulation = useSimulation;
     this.connected = false;
     this.balance = 10000; // simulated USD balance
     this.openTrades = [];
-    this.baseUrl = "https://api.twelvedata.com";
+    this.ws = null;
+    this.latestPrice = null;
+    this.baseUrl = "https://finnhub.io/api/v1";
 
-    console.log("🧩 ExnessAdapter initialized:", {
+    console.log("🧩 ExnessAdapter (Finnhub) initialized:", {
       simulationMode: useSimulation,
       apiKeyLoaded: !!this.apiKey,
     });
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Connect to Twelve Data API
+  // ✅ Connect to Finnhub WebSocket
   // ---------------------------------------------------------------------------
   async connect() {
-    if (!this.apiKey) throw new Error("❌ Missing TWELVE_DATA_API_KEY in environment variables!");
-    console.log("🔌 Connecting to Twelve Data API...");
-    this.connected = true;
-    console.log("✅ Connection established successfully");
+    if (!this.apiKey)
+      throw new Error("❌ Missing FINNHUB_API_KEY in environment variables!");
+
+    console.log("🔌 Connecting to Finnhub WebSocket...");
+
+    const wsUrl = `wss://ws.finnhub.io?token=${this.apiKey}`;
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.on("open", () => {
+      console.log("✅ Connected to Finnhub WebSocket");
+      this.connected = true;
+      // Subscribe to live gold prices (XAU/USD)
+      this.ws.send(JSON.stringify({ type: "subscribe", symbol: "OANDA:XAU_USD" }));
+    });
+
+    this.ws.on("message", (msg) => {
+      const data = JSON.parse(msg.toString());
+      if (data.data && data.data[0]) {
+        const price = data.data[0].p;
+        this.latestPrice = price;
+        console.log(`💹 Live price update: XAU/USD = ${price}`);
+      }
+    });
+
+    this.ws.on("error", (err) => {
+      console.error("⚠️ WebSocket error:", err.message);
+    });
+
+    this.ws.on("close", () => {
+      console.warn("🔌 WebSocket disconnected. Reconnecting in 5s...");
+      this.connected = false;
+      setTimeout(() => this.connect(), 5000);
+    });
+
     return true;
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Fetch real-time price from Twelve Data (with error handling + fallback)
+  // ✅ Fallback REST fetch (if WS price missing)
   // ---------------------------------------------------------------------------
   async getPrice(symbol = "XAU/USD") {
-    if (!this.connected) throw new Error("❌ Adapter not connected. Call connect() first.");
-    const formattedSymbol = symbol.replace("/", "");
+    if (this.latestPrice) return this.latestPrice;
 
-    const url = `${this.baseUrl}/price?symbol=${formattedSymbol}&apikey=${this.apiKey}`;
+    const formattedSymbol = "OANDA:XAU_USD";
+    const url = `${this.baseUrl}/quote?symbol=${formattedSymbol}&token=${this.apiKey}`;
 
     try {
       const res = await fetch(url);
       const data = await res.json();
-
-      if (data && data.price) {
-        const price = parseFloat(data.price);
-        console.log(`💹 Live price for ${symbol}: ${price}`);
-        return price;
-      } else {
-        throw new Error(data.message || "Price not available");
-      }
+      const price = parseFloat(data.c);
+      this.latestPrice = price;
+      console.log(`💹 REST price for ${symbol}: ${price}`);
+      return price;
     } catch (err) {
-      console.error("⚠️ Error fetching live price:", err.message);
-      const fallback = 1900 + Math.sin(Date.now() / 5000) * 10;
+      console.error("⚠️ Error fetching price:", err.message);
+      const fallback = 1900 + Math.sin(Date.now() / 4000) * 5;
       console.log(`🔁 Using fallback simulated price: ${fallback.toFixed(2)}`);
       return fallback;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Check if market is open (Monday–Friday)
+  // ✅ Market status (Mon–Fri)
   // ---------------------------------------------------------------------------
   async isMarketOpen() {
-    const day = new Date().getUTCDay(); // 0=Sun, 6=Sat
+    const day = new Date().getUTCDay();
     const open = day !== 0 && day !== 6;
     console.log(`🕒 Market status: ${open ? "OPEN ✅" : "CLOSED ❌"}`);
     return open;
@@ -90,8 +119,7 @@ export default class ExnessAdapter {
       timestamp: new Date().toISOString(),
     };
 
-    // Simulate a basic balance impact
-    const tradeValue = lotSize * 100; // e.g. 0.1 lot = 10 USD margin
+    const tradeValue = lotSize * 100;
     if (side === "BUY") this.balance -= tradeValue * 0.01;
     if (side === "SELL") this.balance += tradeValue * 0.01;
 
@@ -102,7 +130,7 @@ export default class ExnessAdapter {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Close simulated trade
+  // ✅ Close simulated order
   // ---------------------------------------------------------------------------
   async closeOrder(orderId) {
     const trade = this.openTrades.find((t) => t.id === orderId);
@@ -117,7 +145,7 @@ export default class ExnessAdapter {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Get balance (keeps bot running, not stopping automatically)
+  // ✅ Get simulated balance (always keeps running)
   // ---------------------------------------------------------------------------
   async getBalance() {
     console.log(`💰 Current balance: ${this.balance.toFixed(2)} USD`);
@@ -127,25 +155,23 @@ export default class ExnessAdapter {
   // ---------------------------------------------------------------------------
   // ✅ Fetch historical candle data for strategy analysis
   // ---------------------------------------------------------------------------
-  async fetchHistoricCandles(symbol = "XAU/USD", interval = "1min", count = 50) {
-    const formattedSymbol = symbol.replace("/", "");
-    const url = `${this.baseUrl}/time_series?symbol=${formattedSymbol}&interval=${interval}&outputsize=${count}&apikey=${this.apiKey}`;
+  async fetchHistoricCandles(symbol = "OANDA:XAU_USD", resolution = "1", count = 50) {
+    const url = `${this.baseUrl}/stock/candle?symbol=${symbol}&resolution=${resolution}&count=${count}&token=${this.apiKey}`;
 
     try {
       const res = await fetch(url);
       const data = await res.json();
+      if (data.s !== "ok") throw new Error("No candle data returned");
 
-      if (!data || !data.values) throw new Error("No candle data returned");
-
-      const candles = data.values.map((c) => ({
-        open: parseFloat(c.open),
-        high: parseFloat(c.high),
-        low: parseFloat(c.low),
-        close: parseFloat(c.close),
+      const candles = data.c.map((close, i) => ({
+        open: data.o[i],
+        high: data.h[i],
+        low: data.l[i],
+        close,
       }));
 
       console.log(`📊 Loaded ${candles.length} candles for ${symbol}`);
-      return candles.reverse();
+      return candles;
     } catch (err) {
       console.error("⚠️ Error fetching candles:", err.message);
       return [];
@@ -153,25 +179,23 @@ export default class ExnessAdapter {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Keep simulation running indefinitely (doesn't stop after TP/SL)
+  // ✅ Keep simulation running indefinitely
   // ---------------------------------------------------------------------------
   async simulateProfitLoss() {
     if (this.openTrades.length === 0) return;
-
-    const fluctuation = (Math.random() - 0.5) * 10; // simulate ±5 change
+    const fluctuation = (Math.random() - 0.5) * 10;
     this.balance += fluctuation;
-
-    if (this.balance < 0) this.balance = 0; // prevent negative
+    if (this.balance < 0) this.balance = 0;
     console.log(`📈 Simulated balance update: ${this.balance.toFixed(2)} USD`);
   }
 }
 
 // -----------------------------------------------------------------------------
-// 🧠 Self-test (run directly: node exnessAdapter.js)
+// 🧠 Self-test (run directly: node ExnessAdapter.js)
 // -----------------------------------------------------------------------------
 if (import.meta.url === `file://${process.argv[1]}`) {
   (async () => {
-    console.log("🧠 Running ExnessAdapter self-test...");
+    console.log("🧠 Running ExnessAdapter (Finnhub) self-test...");
     const adapter = new ExnessAdapter({ useSimulation: true });
     await adapter.connect();
 
@@ -182,6 +206,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
     if (open) await adapter.placeOrder({ symbol: "XAU/USD", side: "BUY" });
 
-    console.log("✅ Self-test complete:", { price, open, balance, candles: candles.length });
+    console.log("✅ Self-test complete:", {
+      price,
+      open,
+      balance,
+      candles: candles.length,
+    });
   })();
 }
