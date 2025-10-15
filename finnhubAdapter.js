@@ -1,7 +1,7 @@
 // finnhubAdapter.js
-// -----------------------------------------------------------
-// 🔹 Real-Time Gold Signal Bot using Finnhub API + Telegram 🔹
-// -----------------------------------------------------------
+// -----------------------------------------------------------------------------
+// 🔹 Finnhub Gold Analyzer + Trading Adapter (with simulated balance/trades)
+// -----------------------------------------------------------------------------
 
 import fetch from "node-fetch";
 import TelegramBot from "node-telegram-bot-api";
@@ -9,11 +9,16 @@ import { config, telegramToken, telegramChatId } from "./config.js";
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 const FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
+
 const bot = new TelegramBot(telegramToken, { polling: false });
 
-// -----------------------------------------------------------
-// 🔸 Fetch latest XAU/USD (Gold) price
-// -----------------------------------------------------------
+// Simulated account state
+let simulatedBalance = 1000; // USD
+let openTrades = [];
+
+// -----------------------------------------------------------------------------
+// ✅ Fetch latest XAU/USD (Gold) price
+// -----------------------------------------------------------------------------
 async function getGoldPrice() {
   try {
     const res = await fetch(`${FINNHUB_BASE_URL}/quote?symbol=XAUUSD&token=${FINNHUB_API_KEY}`);
@@ -33,18 +38,18 @@ async function getGoldPrice() {
   }
 }
 
-// -----------------------------------------------------------
-// 🔸 Moving Average (SMA) Calculator
-// -----------------------------------------------------------
+// -----------------------------------------------------------------------------
+// ✅ SMA (Simple Moving Average)
+// -----------------------------------------------------------------------------
 function calculateSMA(prices, period) {
   if (prices.length < period) return null;
   const slice = prices.slice(-period);
   return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
 
-// -----------------------------------------------------------
-// 🔸 RSI (Relative Strength Index) Calculator
-// -----------------------------------------------------------
+// -----------------------------------------------------------------------------
+// ✅ RSI (Relative Strength Index)
+// -----------------------------------------------------------------------------
 function calculateRSI(prices, period = 14) {
   if (prices.length < period + 1) return null;
 
@@ -56,14 +61,14 @@ function calculateRSI(prices, period = 14) {
   }
 
   const avgGain = gains / period;
-  const avgLoss = losses / period || 1; // prevent divide by zero
+  const avgLoss = losses / period || 1; // avoid divide by zero
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);
 }
 
-// -----------------------------------------------------------
-// 🔸 Market Analysis Logic
-// -----------------------------------------------------------
+// -----------------------------------------------------------------------------
+// ✅ Market Analyzer
+// -----------------------------------------------------------------------------
 let priceHistory = [];
 let lastSignal = "HOLD";
 
@@ -84,20 +89,16 @@ async function analyzeMarket() {
     return;
   }
 
+  // Basic combined logic
   let signal = "HOLD";
 
-  // ---------------------------------------------------------
-  // 🔹 Signal Logic (Combines SMA Cross + RSI)
-  // ---------------------------------------------------------
   if (smaShort > smaLong && rsi < 70 && rsi > 40) signal = "BUY";
   else if (smaShort < smaLong && rsi > 30 && rsi < 60) signal = "SELL";
 
   if (rsi > 75) signal = "OVERBOUGHT ⚠ SELL SOON";
   if (rsi < 25) signal = "OVERSOLD ⚠ BUY SOON";
 
-  // ---------------------------------------------------------
-  // 🔔 Send Telegram Notification (Only on Change)
-  // ---------------------------------------------------------
+  // If signal changes, notify via Telegram
   if (signal !== lastSignal) {
     lastSignal = signal;
 
@@ -121,11 +122,69 @@ async function analyzeMarket() {
   }
 }
 
-// -----------------------------------------------------------
-// 🔸 Start Real-Time Analysis (every 30 seconds)
-// -----------------------------------------------------------
-export function startFinnhubBot() {
+// -----------------------------------------------------------------------------
+// ✅ Adapter Methods for External Use (index.js & strategies.js)
+// -----------------------------------------------------------------------------
+export async function startFinnhubBot() {
   console.log("🚀 Finnhub Gold Analyzer started (interval: 30s)");
-  analyzeMarket(); // run immediately at start
+  analyzeMarket(); // run immediately
   setInterval(analyzeMarket, 30 * 1000);
+  return adapterAPI;
 }
+
+export async function fetchHistoricCandles(symbol = "XAUUSD", interval = "1m", limit = 100) {
+  const res = await fetch(
+    `${FINNHUB_BASE_URL}/forex/candle?symbol=${symbol}&resolution=${interval}&count=${limit}&token=${FINNHUB_API_KEY}`
+  );
+  const data = await res.json();
+
+  if (!data?.c) {
+    console.warn("⚠️ No candle data from Finnhub");
+    return [];
+  }
+
+  return data.c.map((close, i) => ({
+    time: data.t[i] * 1000,
+    open: data.o[i],
+    high: data.h[i],
+    low: data.l[i],
+    close,
+  }));
+}
+
+// -----------------------------------------------------------------------------
+// ✅ Simulated Account / Trade Management
+// -----------------------------------------------------------------------------
+async function getBalance() {
+  return simulatedBalance;
+}
+
+async function getOpenTrades() {
+  return openTrades;
+}
+
+async function placeTrade(symbol, side, lotSize = config.lotSize) {
+  const trade = {
+    id: Date.now(),
+    symbol,
+    side,
+    price: priceHistory.at(-1),
+    lotSize,
+    timestamp: new Date().toISOString(),
+  };
+  openTrades.push(trade);
+  console.log(`📈 Simulated trade opened: ${side} ${symbol}`);
+  return trade;
+}
+
+// -----------------------------------------------------------------------------
+// ✅ Export Adapter Object
+// -----------------------------------------------------------------------------
+const adapterAPI = {
+  getBalance,
+  getOpenTrades,
+  placeTrade,
+  fetchHistoricCandles,
+};
+
+export default adapterAPI;
