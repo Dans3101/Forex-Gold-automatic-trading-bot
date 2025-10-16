@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // ExnessAdapter.js
-// Real-time Gold Price Adapter using Finnhub API + Simulated Trading Engine
+// Real-time Gold Price Adapter — Finnhub API + Smart Simulated Trading Engine
 // -----------------------------------------------------------------------------
 
 import WebSocket from "ws";
@@ -14,43 +14,49 @@ export default class ExnessAdapter {
     this.apiKey = apiKey;
     this.useSimulation = useSimulation;
     this.connected = false;
-    this.balance = 10000; // simulated USD balance
+    this.balance = 10000; // simulated balance in USD
     this.openTrades = [];
     this.ws = null;
     this.latestPrice = null;
     this.baseUrl = "https://finnhub.io/api/v1";
+    this.lastPriceTimestamp = 0;
+    this.lastReconnectAttempt = 0;
 
     console.log("🧩 ExnessAdapter (Finnhub) initialized:", {
-      simulationMode: useSimulation,
+      simulationMode: this.useSimulation,
       apiKeyLoaded: !!this.apiKey,
     });
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Connect to Finnhub WebSocket
+  // ✅ Connect to Finnhub WebSocket (auto-reconnect + subscription)
   // ---------------------------------------------------------------------------
   async connect() {
     if (!this.apiKey)
       throw new Error("❌ Missing FINNHUB_API_KEY in environment variables!");
 
+    const wsUrl = `wss://ws.finnhub.io?token=${this.apiKey}`;
     console.log("🔌 Connecting to Finnhub WebSocket...");
 
-    const wsUrl = `wss://ws.finnhub.io?token=${this.apiKey}`;
     this.ws = new WebSocket(wsUrl);
 
     this.ws.on("open", () => {
       console.log("✅ Connected to Finnhub WebSocket");
       this.connected = true;
-      // Subscribe to live gold prices (XAU/USD)
       this.ws.send(JSON.stringify({ type: "subscribe", symbol: "OANDA:XAU_USD" }));
     });
 
     this.ws.on("message", (msg) => {
-      const data = JSON.parse(msg.toString());
-      if (data.data && data.data[0]) {
-        const price = data.data[0].p;
-        this.latestPrice = price;
-        console.log(`💹 Live price update: XAU/USD = ${price}`);
+      try {
+        const data = JSON.parse(msg.toString());
+        if (data.data && data.data[0]) {
+          const tick = data.data[0];
+          this.latestPrice = tick.p;
+          this.lastPriceTimestamp = Date.now();
+          console.log(`💹 Live price: XAU/USD = ${tick.p}`);
+        }
+      } catch (e) {
+        console.error("⚠️ WebSocket message parse error:", e.message);
       }
     });
 
@@ -59,19 +65,37 @@ export default class ExnessAdapter {
     });
 
     this.ws.on("close", () => {
-      console.warn("🔌 WebSocket disconnected. Reconnecting in 5s...");
+      console.warn("🔌 WebSocket closed. Retrying in 5s...");
       this.connected = false;
-      setTimeout(() => this.connect(), 5000);
+      setTimeout(() => this.reconnect(), 5000);
     });
 
     return true;
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Fallback REST fetch (if WS price missing)
+  // 🔁 Smart reconnect handler
+  // ---------------------------------------------------------------------------
+  async reconnect() {
+    const now = Date.now();
+    if (now - this.lastReconnectAttempt < 5000) return; // avoid rapid loops
+    this.lastReconnectAttempt = now;
+
+    try {
+      await this.connect();
+    } catch (err) {
+      console.error("⚠️ Reconnect failed:", err.message);
+      setTimeout(() => this.reconnect(), 5000);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✅ Get current price (WebSocket → REST → Simulation fallback)
   // ---------------------------------------------------------------------------
   async getPrice(symbol = "XAU/USD") {
-    if (this.latestPrice) return this.latestPrice;
+    // Use recent WebSocket price (<15s old)
+    if (this.latestPrice && Date.now() - this.lastPriceTimestamp < 15000)
+      return this.latestPrice;
 
     const formattedSymbol = "OANDA:XAU_USD";
     const url = `${this.baseUrl}/quote?symbol=${formattedSymbol}&token=${this.apiKey}`;
@@ -80,32 +104,39 @@ export default class ExnessAdapter {
       const res = await fetch(url);
       const data = await res.json();
       const price = parseFloat(data.c);
-      this.latestPrice = price;
-      console.log(`💹 REST price for ${symbol}: ${price}`);
-      return price;
+      if (!isNaN(price)) {
+        this.latestPrice = price;
+        this.lastPriceTimestamp = Date.now();
+        console.log(`💹 REST price for ${symbol}: ${price}`);
+        return price;
+      }
+      throw new Error("Invalid price data");
     } catch (err) {
-      console.error("⚠️ Error fetching price:", err.message);
-      const fallback = 1900 + Math.sin(Date.now() / 4000) * 5;
-      console.log(`🔁 Using fallback simulated price: ${fallback.toFixed(2)}`);
+      // Fallback simulation if all fails
+      const fallback = 1900 + Math.sin(Date.now() / 4000) * 8;
+      console.warn(`🔁 Using simulated fallback price: ${fallback.toFixed(2)}`);
       return fallback;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Market status (Mon–Fri)
+  // ✅ Market open/close (Mon–Fri)
   // ---------------------------------------------------------------------------
   async isMarketOpen() {
     const day = new Date().getUTCDay();
-    const open = day !== 0 && day !== 6;
+    const hour = new Date().getUTCHours();
+    const open = day !== 0 && day !== 6 && hour >= 0 && hour <= 23;
     console.log(`🕒 Market status: ${open ? "OPEN ✅" : "CLOSED ❌"}`);
     return open;
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Place simulated order (BUY/SELL)
+  // ✅ Simulated order execution (BUY/SELL)
   // ---------------------------------------------------------------------------
   async placeOrder({ symbol = "XAU/USD", side = "BUY", lotSize = 0.1 }) {
-    if (!this.connected) throw new Error("❌ Adapter not connected");
+    if (!this.connected) {
+      console.warn("⚠️ Adapter not connected — using fallback simulation.");
+    }
 
     const price = await this.getPrice(symbol);
     const id = `TRADE-${Date.now()}`;
@@ -119,9 +150,9 @@ export default class ExnessAdapter {
       timestamp: new Date().toISOString(),
     };
 
-    const tradeValue = lotSize * 100;
-    if (side === "BUY") this.balance -= tradeValue * 0.01;
-    if (side === "SELL") this.balance += tradeValue * 0.01;
+    const tradeCost = lotSize * price * 0.01;
+    if (side === "BUY") this.balance -= tradeCost;
+    if (side === "SELL") this.balance += tradeCost;
 
     this.openTrades.push(trade);
 
@@ -130,14 +161,11 @@ export default class ExnessAdapter {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Close simulated order
+  // ✅ Close simulated trade
   // ---------------------------------------------------------------------------
   async closeOrder(orderId) {
     const trade = this.openTrades.find((t) => t.id === orderId);
-    if (!trade) {
-      console.warn(`⚠️ Trade not found: ${orderId}`);
-      return { success: false };
-    }
+    if (!trade) return { success: false, message: "Trade not found" };
 
     this.openTrades = this.openTrades.filter((t) => t.id !== orderId);
     console.log(`📥 Trade closed: ${orderId}`);
@@ -145,18 +173,17 @@ export default class ExnessAdapter {
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Get simulated balance (always keeps running)
+  // ✅ Simulated account balance
   // ---------------------------------------------------------------------------
   async getBalance() {
-    console.log(`💰 Current balance: ${this.balance.toFixed(2)} USD`);
     return this.balance;
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Fetch historical candle data for strategy analysis
+  // ✅ Historical candle data (for strategies)
   // ---------------------------------------------------------------------------
-  async fetchHistoricCandles(symbol = "OANDA:XAU_USD", resolution = "1", count = 50) {
-    const url = `${this.baseUrl}/stock/candle?symbol=${symbol}&resolution=${resolution}&count=${count}&token=${this.apiKey}`;
+  async fetchHistoricCandles(symbol = "OANDA:XAU_USD", resolution = "1", count = 100) {
+    const url = `${this.baseUrl}/forex/candle?symbol=${symbol}&resolution=${resolution}&count=${count}&token=${this.apiKey}`;
 
     try {
       const res = await fetch(url);
@@ -168,45 +195,47 @@ export default class ExnessAdapter {
         high: data.h[i],
         low: data.l[i],
         close,
+        time: data.t[i] * 1000,
       }));
 
       console.log(`📊 Loaded ${candles.length} candles for ${symbol}`);
       return candles;
     } catch (err) {
-      console.error("⚠️ Error fetching candles:", err.message);
+      console.error("⚠️ Candle fetch error:", err.message);
       return [];
     }
   }
 
   // ---------------------------------------------------------------------------
-  // ✅ Keep simulation running indefinitely
+  // ✅ Continuous simulation (P/L drift)
   // ---------------------------------------------------------------------------
   async simulateProfitLoss() {
     if (this.openTrades.length === 0) return;
-    const fluctuation = (Math.random() - 0.5) * 10;
-    this.balance += fluctuation;
+
+    const drift = (Math.random() - 0.5) * 20;
+    this.balance += drift;
     if (this.balance < 0) this.balance = 0;
-    console.log(`📈 Simulated balance update: ${this.balance.toFixed(2)} USD`);
+    console.log(`📈 Simulated balance change: ${this.balance.toFixed(2)} USD`);
   }
 }
 
 // -----------------------------------------------------------------------------
-// 🧠 Self-test (run directly: node ExnessAdapter.js)
+// 🧠 Self-Test — run directly with `node ExnessAdapter.js`
 // -----------------------------------------------------------------------------
 if (import.meta.url === `file://${process.argv[1]}`) {
   (async () => {
-    console.log("🧠 Running ExnessAdapter (Finnhub) self-test...");
+    console.log("🧠 Running ExnessAdapter self-test...");
     const adapter = new ExnessAdapter({ useSimulation: true });
     await adapter.connect();
 
-    const price = await adapter.getPrice("XAU/USD");
+    const price = await adapter.getPrice();
     const open = await adapter.isMarketOpen();
     const balance = await adapter.getBalance();
     const candles = await adapter.fetchHistoricCandles();
 
-    if (open) await adapter.placeOrder({ symbol: "XAU/USD", side: "BUY" });
+    if (open) await adapter.placeOrder({ side: "BUY", lotSize: 0.2 });
 
-    console.log("✅ Self-test complete:", {
+    console.log("✅ Self-test summary:", {
       price,
       open,
       balance,
