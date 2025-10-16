@@ -1,10 +1,11 @@
 // -----------------------------------------------------------------------------
 // exnessBot.js
-// Live Gold Trading Bot — Using Finnhub API (via ExnessAdapter.js)
+// Live Gold Trading Bot — Auto Trend Detection using Finnhub + RSI + EMA
 // -----------------------------------------------------------------------------
 
 import { config } from "./config.js";
 import ExnessAdapter from "./exnessAdapter.js";
+import { EMA, RSI } from "technicalindicators"; // ✅ npm install technicalindicators
 import { applyStrategy } from "./strategies.js";
 
 let botActive = false;
@@ -16,7 +17,7 @@ let errorCount = 0;
 // ✅ Initialize Finnhub Adapter
 const adapter = new ExnessAdapter({
   apiKey: process.env.FINNHUB_API_KEY,
-  useSimulation: false, // Set true for test mode
+  useSimulation: false,
 });
 
 /**
@@ -32,7 +33,36 @@ async function safeSend(bot, chatId, text, options = {}) {
 }
 
 /**
- * ✅ Core loop to fetch data and make trade decisions
+ * ✅ Trend Detector using RSI and EMA
+ */
+function detectTrend(candles) {
+  const closes = candles.map((c) => parseFloat(c.close));
+
+  // Calculate RSI and EMAs
+  const rsiValues = RSI.calculate({ values: closes, period: 14 });
+  const emaShort = EMA.calculate({ values: closes, period: 9 });
+  const emaLong = EMA.calculate({ values: closes, period: 21 });
+
+  const latestRSI = rsiValues.at(-1);
+  const prevRSI = rsiValues.at(-2);
+  const latestShort = emaShort.at(-1);
+  const latestLong = emaLong.at(-1);
+  const prevShort = emaShort.at(-2);
+  const prevLong = emaLong.at(-2);
+
+  // Detect EMA crossover
+  const emaBullish = prevShort < prevLong && latestShort > latestLong;
+  const emaBearish = prevShort > prevLong && latestShort < latestLong;
+
+  // Combine RSI + EMA
+  if (emaBullish && latestRSI > 55 && latestRSI > prevRSI) return "BUY";
+  if (emaBearish && latestRSI < 45 && latestRSI < prevRSI) return "SELL";
+
+  return "HOLD";
+}
+
+/**
+ * ✅ Core trading logic loop
  */
 async function tradingLoop(bot, chatId) {
   try {
@@ -49,23 +79,28 @@ async function tradingLoop(bot, chatId) {
     ]);
 
     if (!price || !candles?.length) {
-      throw new Error("Invalid data from Finnhub.");
+      throw new Error("Invalid candle data from Finnhub.");
     }
 
-    // Apply strategy to get decision
-    const decision = await applyStrategy(candles);
+    // Auto trend detection
+    const trendDecision = detectTrend(candles);
+    const strategyDecision = await applyStrategy(candles);
+
+    // Confirm only if both agree
+    const finalDecision =
+      trendDecision === strategyDecision ? trendDecision : "HOLD";
 
     console.log(
-      `📊 ${config.asset} | ${decision} | Price: ${price.toFixed(2)} | Balance: ${balance.toFixed(2)}`
+      `📊 ${config.asset} | ${finalDecision} | Price: ${price.toFixed(2)} | Balance: ${balance.toFixed(2)}`
     );
 
-    // Skip HOLD signals unless trend changes
-    if (decision !== lastDecision && (decision === "BUY" || decision === "SELL")) {
-      lastDecision = decision;
+    // Trigger trades only if new confirmed signal
+    if (finalDecision !== lastDecision && (finalDecision === "BUY" || finalDecision === "SELL")) {
+      lastDecision = finalDecision;
 
       const order = await adapter.placeOrder({
         symbol: config.asset,
-        side: decision,
+        side: finalDecision,
         lotSize: config.lotSize,
       });
 
@@ -73,18 +108,19 @@ async function tradingLoop(bot, chatId) {
         await safeSend(
           bot,
           chatId,
-          `🚨 *${decision} SIGNAL TRIGGERED!*\n\n` +
+          `🚨 *${finalDecision} SIGNAL CONFIRMED!*\n\n` +
             `💱 Asset: *${config.asset}*\n` +
-            `💰 Balance: *${balance.toFixed(2)} USD*\n` +
             `💹 Price: *${price.toFixed(2)}*\n` +
+            `💰 Balance: *${balance.toFixed(2)} USD*\n` +
             `📦 Lot: *${config.lotSize}*\n` +
-            `🧠 Strategy: *${config.strategy}*`,
+            `📊 RSI: *${trendDecision === "BUY" ? "Bullish (>55)" : "Bearish (<45)"}*\n` +
+            `⚙️ Strategy: *${config.strategy}*`,
           { parse_mode: "Markdown" }
         );
       }
     }
 
-    // Send small update if price changed a lot
+    // Occasional update when price moves a lot
     if (!lastPrice || Math.abs(price - lastPrice) / lastPrice > 0.002) {
       await safeSend(
         bot,
@@ -92,21 +128,20 @@ async function tradingLoop(bot, chatId) {
         `📈 *Market Update*\n\n` +
           `💱 Asset: *${config.asset}*\n` +
           `💹 Price: *${price.toFixed(2)}*\n` +
-          `🧭 Decision: *${decision}*\n` +
+          `🧭 Decision: *${finalDecision}*\n` +
           `💰 Balance: *${balance.toFixed(2)} USD*`,
         { parse_mode: "Markdown" }
       );
       lastPrice = price;
     }
 
-    // Simulate profit/loss
     await adapter.simulateProfitLoss();
-    errorCount = 0; // reset after success
+    errorCount = 0;
   } catch (err) {
-    console.error("❌ Bot loop error:", err.message);
+    console.error("❌ Trading loop error:", err.message);
     errorCount++;
     if (errorCount > 3) {
-      console.log("⚠️ Too many errors — attempting reconnection...");
+      console.log("⚠️ Too many errors — reconnecting...");
       await adapter.connect();
       errorCount = 0;
     }
@@ -123,8 +158,8 @@ async function startExnessBot(bot, chatId) {
   }
 
   botActive = true;
-  console.log("🚀 Starting Exness Bot (Finnhub)...");
-  await safeSend(bot, chatId, "🚀 Starting trading bot...");
+  console.log("🚀 Starting Exness Bot (Finnhub + Trend Detection)...");
+  await safeSend(bot, chatId, "🚀 Starting trading bot with auto-trend detection...");
 
   const connected = await adapter.connect();
   if (!connected) {
@@ -136,7 +171,6 @@ async function startExnessBot(bot, chatId) {
   await safeSend(bot, chatId, "✅ Connected to Finnhub API. Monitoring live gold prices...");
   console.log("✅ Connected to Finnhub API.");
 
-  // Run every 30 seconds
   intervalId = setInterval(async () => {
     if (botActive) await tradingLoop(bot, chatId);
   }, 30000);
@@ -160,7 +194,7 @@ async function stopExnessBot(bot, chatId) {
 }
 
 /**
- * ✅ Telegram Commands
+ * ✅ Telegram Command Handlers
  */
 function setupTelegramHandlers(bot) {
   bot.onText(/\/startbot/, (msg) => startExnessBot(bot, msg.chat.id));
@@ -176,7 +210,7 @@ function setupTelegramHandlers(bot) {
       const statusMsg =
         `🛰 *Bot Status*\n\n` +
         `🔗 Connection: *${connected ? "Connected ✅" : "Disconnected ❌"}*\n` +
-        `⚙️ Strategy: *${config.strategy}*\n` +
+        `🧠 Strategy: *${config.strategy}*\n` +
         `💱 Asset: *${config.asset}*\n` +
         `💹 Price: *${price.toFixed(2)}*\n` +
         `💰 Balance: *${balance.toFixed(2)} USD*\n` +
