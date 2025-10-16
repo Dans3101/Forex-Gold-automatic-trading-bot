@@ -1,6 +1,6 @@
 // finnhubAdapter.js
 // -----------------------------------------------------------------------------
-// 🔹 Finnhub Gold Analyzer + Trading Adapter (with simulated balance/trades)
+// 🔹 Finnhub Gold Analyzer + Trading Adapter (improved signal detection)
 // -----------------------------------------------------------------------------
 
 import fetch from "node-fetch";
@@ -9,37 +9,29 @@ import { config, telegramToken, telegramChatId } from "./config.js";
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
 const FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
-
 const bot = new TelegramBot(telegramToken, { polling: false });
 
 // Simulated account state
-let simulatedBalance = 1000; // USD
+let simulatedBalance = 1000;
 let openTrades = [];
 
 // -----------------------------------------------------------------------------
-// ✅ Fetch latest XAU/USD (Gold) price
+// ✅ Get real-time Gold price
 // -----------------------------------------------------------------------------
 async function getGoldPrice() {
   try {
     const res = await fetch(`${FINNHUB_BASE_URL}/quote?symbol=XAUUSD&token=${FINNHUB_API_KEY}`);
     const data = await res.json();
-    if (!data.c) throw new Error("No price data returned from Finnhub");
-
-    return {
-      current: data.c,
-      high: data.h,
-      low: data.l,
-      open: data.o,
-      prevClose: data.pc,
-    };
+    if (!data.c) throw new Error("No price data from Finnhub");
+    return data.c;
   } catch (err) {
-    console.error("❌ Error fetching gold price:", err.message);
+    console.error("❌ Error fetching price:", err.message);
     return null;
   }
 }
 
 // -----------------------------------------------------------------------------
-// ✅ SMA (Simple Moving Average)
+// ✅ SMA & RSI calculation helpers
 // -----------------------------------------------------------------------------
 function calculateSMA(prices, period) {
   if (prices.length < period) return null;
@@ -47,21 +39,18 @@ function calculateSMA(prices, period) {
   return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
 
-// -----------------------------------------------------------------------------
-// ✅ RSI (Relative Strength Index)
-// -----------------------------------------------------------------------------
 function calculateRSI(prices, period = 14) {
   if (prices.length < period + 1) return null;
 
   let gains = 0, losses = 0;
   for (let i = prices.length - period; i < prices.length; i++) {
     const diff = prices[i] - prices[i - 1];
-    if (diff >= 0) gains += diff;
+    if (diff > 0) gains += diff;
     else losses -= diff;
   }
 
   const avgGain = gains / period;
-  const avgLoss = losses / period || 1; // avoid divide by zero
+  const avgLoss = losses / period || 1;
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);
 }
@@ -71,12 +60,12 @@ function calculateRSI(prices, period = 14) {
 // -----------------------------------------------------------------------------
 let priceHistory = [];
 let lastSignal = "HOLD";
+let trend = "NEUTRAL";
 
 async function analyzeMarket() {
-  const priceData = await getGoldPrice();
-  if (!priceData) return;
+  const price = await getGoldPrice();
+  if (!price) return;
 
-  const price = priceData.current;
   priceHistory.push(price);
   if (priceHistory.length > 300) priceHistory.shift();
 
@@ -85,82 +74,76 @@ async function analyzeMarket() {
   const rsi = calculateRSI(priceHistory, 14);
 
   if (!smaShort || !smaLong || !rsi) {
-    console.log("⏳ Collecting data... waiting for enough candles");
+    console.log("⏳ Collecting price history...");
     return;
   }
 
-  // Basic combined logic
+  // --- Improved decision logic ---
   let signal = "HOLD";
 
-  if (smaShort > smaLong && rsi < 70 && rsi > 40) signal = "BUY";
-  else if (smaShort < smaLong && rsi > 30 && rsi < 60) signal = "SELL";
+  if (smaShort > smaLong && rsi > 50 && rsi < 70) {
+    signal = "BUY";
+    trend = "BULLISH";
+  } else if (smaShort < smaLong && rsi < 50 && rsi > 30) {
+    signal = "SELL";
+    trend = "BEARISH";
+  }
 
-  if (rsi > 75) signal = "OVERBOUGHT ⚠ SELL SOON";
-  if (rsi < 25) signal = "OVERSOLD ⚠ BUY SOON";
+  // Overbought / oversold zones
+  if (rsi >= 70) signal = "OVERBOUGHT ⚠ SELL SOON";
+  if (rsi <= 30) signal = "OVERSOLD ⚠ BUY SOON";
 
-  // If signal changes, notify via Telegram
+  // If no signal, keep the last known trend
+  if (signal === "HOLD" && trend === "BULLISH") signal = "STAY IN BUY";
+  if (signal === "HOLD" && trend === "BEARISH") signal = "STAY IN SELL";
+
+  // Send update only when signal changes
   if (signal !== lastSignal) {
     lastSignal = signal;
-
-    const message =
-      `📊 *Gold Market Update*\n\n` +
-      `💰 Symbol: *XAU/USD*\n` +
-      `💵 Current Price: *${price.toFixed(2)}*\n` +
-      `📈 Short SMA (5): *${smaShort.toFixed(2)}*\n` +
-      `📉 Long SMA (20): *${smaLong.toFixed(2)}*\n` +
-      `📊 RSI (14): *${rsi.toFixed(2)}*\n\n` +
-      `📢 *Signal: ${signal}*`;
+    const msg =
+      `📊 *Gold (XAU/USD) Signal*\n\n` +
+      `💵 Price: *${price.toFixed(2)}*\n` +
+      `📈 SMA-5: *${smaShort.toFixed(2)}*\n` +
+      `📉 SMA-20: *${smaLong.toFixed(2)}*\n` +
+      `📊 RSI-14: *${rsi.toFixed(2)}*\n\n` +
+      `⚡ *Signal: ${signal}*`;
 
     try {
-      await bot.sendMessage(telegramChatId, message, { parse_mode: "Markdown" });
-      console.log(`✅ Signal sent to Telegram: ${signal}`);
+      await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
+      console.log(`✅ Sent new signal: ${signal}`);
     } catch (err) {
-      console.error("⚠️ Failed to send Telegram message:", err.message);
+      console.error("⚠️ Telegram error:", err.message);
     }
   } else {
-    console.log(`📍 HOLD | Price: ${price.toFixed(2)} | RSI: ${rsi.toFixed(1)}`);
+    console.log(`📍 ${signal} | Price: ${price.toFixed(2)} | RSI: ${rsi.toFixed(1)}`);
   }
 }
 
 // -----------------------------------------------------------------------------
-// ✅ Adapter Methods for External Use (index.js & strategies.js)
+// ✅ Candle History Fetcher (for better start-up accuracy)
 // -----------------------------------------------------------------------------
-export async function startFinnhubBot() {
-  console.log("🚀 Finnhub Gold Analyzer started (interval: 30s)");
-  analyzeMarket(); // run immediately
-  setInterval(analyzeMarket, 30 * 1000);
-  return adapterAPI;
-}
+export async function fetchHistoricCandles(symbol = "XAUUSD", resolution = "1", limit = 100) {
+  try {
+    const res = await fetch(
+      `${FINNHUB_BASE_URL}/forex/candle?symbol=${symbol}&resolution=${resolution}&count=${limit}&token=${FINNHUB_API_KEY}`
+    );
+    const data = await res.json();
+    if (!data?.c) return [];
 
-export async function fetchHistoricCandles(symbol = "XAUUSD", interval = "1m", limit = 100) {
-  const res = await fetch(
-    `${FINNHUB_BASE_URL}/forex/candle?symbol=${symbol}&resolution=${interval}&count=${limit}&token=${FINNHUB_API_KEY}`
-  );
-  const data = await res.json();
-
-  if (!data?.c) {
-    console.warn("⚠️ No candle data from Finnhub");
+    priceHistory = data.c.slice(-100); // warm up with recent candles
+    console.log("📈 Loaded initial candle history:", priceHistory.length);
+    return priceHistory;
+  } catch (err) {
+    console.error("❌ Error fetching candles:", err.message);
     return [];
   }
-
-  return data.c.map((close, i) => ({
-    time: data.t[i] * 1000,
-    open: data.o[i],
-    high: data.h[i],
-    low: data.l[i],
-    close,
-  }));
 }
 
 // -----------------------------------------------------------------------------
-// ✅ Simulated Account / Trade Management
+// ✅ Simulated Trade System
 // -----------------------------------------------------------------------------
 async function getBalance() {
   return simulatedBalance;
-}
-
-async function getOpenTrades() {
-  return openTrades;
 }
 
 async function placeTrade(symbol, side, lotSize = config.lotSize) {
@@ -170,7 +153,7 @@ async function placeTrade(symbol, side, lotSize = config.lotSize) {
     side,
     price: priceHistory.at(-1),
     lotSize,
-    timestamp: new Date().toISOString(),
+    time: new Date().toISOString(),
   };
   openTrades.push(trade);
   console.log(`📈 Simulated trade opened: ${side} ${symbol}`);
@@ -178,11 +161,21 @@ async function placeTrade(symbol, side, lotSize = config.lotSize) {
 }
 
 // -----------------------------------------------------------------------------
-// ✅ Export Adapter Object
+// ✅ Start Analyzer
+// -----------------------------------------------------------------------------
+export async function startFinnhubBot() {
+  console.log("🚀 Finnhub Gold Analyzer (refresh every 30s)");
+  await fetchHistoricCandles(); // preload
+  analyzeMarket();
+  setInterval(analyzeMarket, 30 * 1000);
+  return adapterAPI;
+}
+
+// -----------------------------------------------------------------------------
+// ✅ Export Adapter API
 // -----------------------------------------------------------------------------
 const adapterAPI = {
   getBalance,
-  getOpenTrades,
   placeTrade,
   fetchHistoricCandles,
 };
