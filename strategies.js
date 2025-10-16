@@ -3,11 +3,12 @@
 // Intelligent Trading Strategy Module (for Finnhub / Exness bots)
 // -----------------------------------------------------------------------------
 
-import { SMA, BollingerBands, MACD } from "technicalindicators";
+import { SMA, EMA, RSI, BollingerBands, MACD } from "technicalindicators";
 
 /**
- * This module combines multiple technical indicators (MA, MACD, Bollinger)
- * to produce clear, timely BUY/SELL/HOLD signals using live candle data.
+ * Multi-indicator confirmation system.
+ * Uses MA crossover, MACD, Bollinger, RSI, EMA trend, and support/resistance
+ * to produce strong BUY / SELL / HOLD signals.
  */
 
 // --- Moving Average Crossover ---
@@ -25,10 +26,8 @@ export function movingAverageCrossover(data) {
 
   if (!shortNow || !longNow || !prevShort || !prevLong) return "HOLD";
 
-  // Crossover detection
   if (prevShort <= prevLong && shortNow > longNow) return "BUY";
   if (prevShort >= prevLong && shortNow < longNow) return "SELL";
-
   return "HOLD";
 }
 
@@ -47,11 +46,8 @@ export function bollingerBands(data) {
   const price = closes.at(-1);
   if (!last) return "HOLD";
 
-  // Price below lower band → possible reversal up
   if (price < last.lower) return "BUY";
-  // Price above upper band → possible reversal down
   if (price > last.upper) return "SELL";
-
   return "HOLD";
 }
 
@@ -73,25 +69,34 @@ export function macdStrategy(data) {
   const prev = macd.at(-2);
   if (!last || !prev) return "HOLD";
 
-  // Crossovers
   if (prev.MACD <= prev.signal && last.MACD > last.signal) return "BUY";
   if (prev.MACD >= prev.signal && last.MACD < last.signal) return "SELL";
-
   return "HOLD";
 }
 
-// --- Trend Momentum (simple) ---
-export function trendMomentum(data) {
-  if (!data || data.length < 15) return "HOLD";
+// --- RSI + EMA Confirmation (Trend Strength Detector) ---
+export function rsiEmaTrend(data) {
+  if (!data || data.length < 30) return "HOLD";
   const closes = data.map(c => c.close);
 
-  const last = closes.at(-1);
-  const prev = closes.at(-2);
-  const diff = ((last - prev) / prev) * 100;
+  const rsi = RSI.calculate({ values: closes, period: 14 });
+  const emaShort = EMA.calculate({ values: closes, period: 9 });
+  const emaLong = EMA.calculate({ values: closes, period: 21 });
 
-  // Significant move thresholds
-  if (diff > 0.15) return "BUY";
-  if (diff < -0.15) return "SELL";
+  const latestRSI = rsi.at(-1);
+  const prevRSI = rsi.at(-2);
+  const latestShort = emaShort.at(-1);
+  const latestLong = emaLong.at(-1);
+  const prevShort = emaShort.at(-2);
+  const prevLong = emaLong.at(-2);
+
+  if (!latestRSI || !latestShort || !latestLong || !prevShort || !prevLong) return "HOLD";
+
+  const bullishCross = prevShort < prevLong && latestShort > latestLong;
+  const bearishCross = prevShort > prevLong && latestShort < latestLong;
+
+  if (bullishCross && latestRSI > 55 && latestRSI > prevRSI) return "BUY";
+  if (bearishCross && latestRSI < 45 && latestRSI < prevRSI) return "SELL";
   return "HOLD";
 }
 
@@ -105,26 +110,54 @@ export function supportResistance(data) {
   const resistance = Math.max(...recent);
   const lastPrice = closes.at(-1);
 
-  if (lastPrice <= support * 1.002) return "BUY"; // bounce
-  if (lastPrice >= resistance * 0.998) return "SELL"; // rejection
+  if (lastPrice <= support * 1.002) return "BUY";
+  if (lastPrice >= resistance * 0.998) return "SELL";
   return "HOLD";
 }
 
-// --- Combined Decision Logic ---
+// --- Volatility Filter (ignores low-movement zones) ---
+function volatilityLow(data) {
+  const closes = data.map(c => c.close);
+  const high = Math.max(...closes);
+  const low = Math.min(...closes);
+  const rangePercent = ((high - low) / low) * 100;
+  return rangePercent < 0.15; // less than 0.15% = flat
+}
+
+// --- Weighted Combined Decision ---
 export function combinedDecision(data) {
-  const results = [
-    movingAverageCrossover(data),
-    macdStrategy(data),
-    bollingerBands(data),
-    trendMomentum(data),
-    supportResistance(data),
-  ];
+  if (!data || data.length < 50) return "HOLD";
 
-  const buyCount = results.filter(r => r === "BUY").length;
-  const sellCount = results.filter(r => r === "SELL").length;
+  if (volatilityLow(data)) {
+    console.log("⚠️ Low volatility detected — holding.");
+    return "HOLD";
+  }
 
-  if (buyCount > sellCount + 1) return "BUY";
-  if (sellCount > buyCount + 1) return "SELL";
+  const signals = {
+    ma: movingAverageCrossover(data),
+    macd: macdStrategy(data),
+    boll: bollingerBands(data),
+    rsiEma: rsiEmaTrend(data),
+    sr: supportResistance(data),
+  };
+
+  const weights = {
+    ma: 2,
+    macd: 2,
+    boll: 1,
+    rsiEma: 3, // strongest weight
+    sr: 1,
+  };
+
+  let score = 0;
+  for (const [key, signal] of Object.entries(signals)) {
+    if (signal === "BUY") score += weights[key];
+    if (signal === "SELL") score -= weights[key];
+  }
+
+  // Decision thresholds
+  if (score >= 4) return "BUY";
+  if (score <= -4) return "SELL";
   return "HOLD";
 }
 
@@ -136,10 +169,8 @@ export async function applyStrategy(candles) {
   try {
     if (!candles || candles.length < 30) return "HOLD";
 
-    // Main combined logic
     const signal = combinedDecision(candles);
-
-    console.log(`📊 Strategy decision: ${signal}`);
+    console.log(`🧠 Strategy decision: ${signal}`);
     return signal;
   } catch (err) {
     console.error("❌ Strategy execution failed:", err.message);
@@ -159,6 +190,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     close: 1900 + Math.sin(i / 5) * 10 + Math.random() * 5,
   }));
 
-  console.log("🧠 Strategy test...");
+  console.log("🧠 Strategy self-test...");
   console.log("→ Combined Decision:", combinedDecision(fakeData));
 }
