@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// ⚡ Finnhub Gold Analyzer + EMA-Based Trading Adapter
+// ⚡ Finnhub Gold Analyzer + Enhanced EMA-Based Signal Bot (Telegram Only)
 // -----------------------------------------------------------------------------
 
 import fetch from "node-fetch";
@@ -10,14 +10,14 @@ import { telegramToken, telegramChatId } from "./config.js";
 // ⚙️ CONFIGURATION
 // -----------------------------------------------------------------------------
 const FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
-const DEFAULT_BALANCE = 1000; // USD
-const TRADE_HISTORY_LIMIT = 20; // keep last N trades
-const SIGNAL_INTERVAL = 30 * 1000; // 30 seconds
+const SIGNAL_INTERVAL = 30 * 1000; // every 30s
+const CONFIRMATION_ROUNDS = 2; // confirm signal consistency
+const COOLDOWN_TIME = 5 * 60 * 1000; // 5 minutes between alerts
 
-let simulatedBalance = DEFAULT_BALANCE;
-let openTrades = [];
-let lastSignal = "HOLD";
 let bot;
+let lastSignal = "HOLD";
+let confirmationCount = 0;
+let lastAlertTime = 0;
 
 // -----------------------------------------------------------------------------
 // 🔹 Helper: Finnhub API Request
@@ -25,7 +25,6 @@ let bot;
 async function finnhubRequest(endpoint, apiKey, params = {}) {
   const url = new URL(`${FINNHUB_BASE_URL}/${endpoint}`);
   url.searchParams.set("token", apiKey);
-
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
@@ -41,7 +40,7 @@ async function finnhubRequest(endpoint, apiKey, params = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// ⚡ EMA CALCULATOR (Exponential Moving Average)
+// ⚡ EMA CALCULATOR
 // -----------------------------------------------------------------------------
 function calculateEMA(prices, period) {
   const k = 2 / (period + 1);
@@ -53,12 +52,12 @@ function calculateEMA(prices, period) {
 }
 
 // -----------------------------------------------------------------------------
-// 📊 Complex EMA Market Analyzer (14, 50, 200)
+// 📊 Triple EMA Market Analysis (14, 50, 200)
 // -----------------------------------------------------------------------------
-async function complexEMAAnalysis(apiKey, symbol = "XAUUSD") {
+async function analyzeEMAStructure(apiKey, symbol = "XAUUSD") {
   const candles = await finnhubRequest("forex/candle", apiKey, {
     symbol,
-    resolution: "5", // 5-minute candles
+    resolution: "5", // 5-minute interval
     count: 300,
   });
 
@@ -70,11 +69,26 @@ async function complexEMAAnalysis(apiKey, symbol = "XAUUSD") {
   const ema200 = calculateEMA(closes, 200).at(-1);
 
   let signal = "HOLD";
-  if (ema14 > ema50 && ema50 > ema200) signal = "BUY";
-  else if (ema14 < ema50 && ema50 < ema200) signal = "SELL";
+  let trend = "Neutral";
+
+  // 🔹 Determine trend direction
+  if (ema14 > ema50 && ema50 > ema200) {
+    signal = "BUY";
+    trend = "Uptrend Forming ✅";
+  } else if (ema14 < ema50 && ema50 < ema200) {
+    signal = "SELL";
+    trend = "Downtrend Forming ⚠️";
+  } else if (ema14 > ema50 && ema50 < ema200) {
+    signal = "POSSIBLE REVERSAL (BUY)";
+    trend = "Potential Reversal 📈";
+  } else if (ema14 < ema50 && ema50 > ema200) {
+    signal = "POSSIBLE REVERSAL (SELL)";
+    trend = "Potential Reversal 📉";
+  }
 
   return {
     signal,
+    trend,
     ema14: ema14.toFixed(2),
     ema50: ema50.toFixed(2),
     ema200: ema200.toFixed(2),
@@ -82,105 +96,67 @@ async function complexEMAAnalysis(apiKey, symbol = "XAUUSD") {
 }
 
 // -----------------------------------------------------------------------------
-// 💹 Simulated Trading Operations
-// -----------------------------------------------------------------------------
-async function getBalance() {
-  return simulatedBalance;
-}
-
-async function getOpenTrades() {
-  return openTrades;
-}
-
-async function openTrade(symbol = "XAUUSD", side = "buy", lotSize = 0.1, price) {
-  const trade = {
-    id: openTrades.length + 1,
-    symbol,
-    side,
-    price,
-    lotSize,
-    time: new Date().toISOString(),
-  };
-
-  openTrades.push(trade);
-  if (openTrades.length > TRADE_HISTORY_LIMIT) openTrades.shift();
-
-  simulatedBalance -= lotSize * price * 0.01; // slight margin impact
-  console.log(`📈 Trade opened: ${side.toUpperCase()} ${symbol} @ ${price}`);
-  return trade;
-}
-
-async function closeTrade(tradeId, currentPrice) {
-  const tradeIndex = openTrades.findIndex((t) => t.id === tradeId);
-  if (tradeIndex === -1) throw new Error("Trade not found.");
-
-  const trade = openTrades[tradeIndex];
-  const profit =
-    trade.side === "buy"
-      ? (currentPrice - trade.price) * trade.lotSize * 10
-      : (trade.price - currentPrice) * trade.lotSize * 10;
-
-  simulatedBalance += profit;
-  openTrades.splice(tradeIndex, 1);
-
-  console.log(
-    `💼 Closed Trade #${tradeId}: ${trade.symbol} | Profit: ${profit.toFixed(2)} USD`
-  );
-  return { trade, profit };
-}
-
-// -----------------------------------------------------------------------------
-// 🚀 Start Finnhub Bot (with EMA signal updates)
+// 🚀 Start Finnhub Bot (Telegram Alerts Only)
 // -----------------------------------------------------------------------------
 export async function startFinnhubBot({ apiKey }) {
   if (!apiKey) throw new Error("Missing Finnhub API key.");
 
-  console.log("🔌 Connecting to Finnhub API...");
+  console.log("🔌 Connecting to Finnhub...");
   const quote = await finnhubRequest("quote", apiKey, { symbol: "XAUUSD" });
+  if (quote?.c) console.log(`✅ Connected | Current Gold Price: ${quote.c}`);
+  else console.warn("⚠️ No live price data, continuing in analysis mode...");
 
-  if (quote?.c) {
-    console.log(`✅ Connected to Finnhub | Current Gold Price: ${quote.c}`);
-  } else {
-    console.warn("⚠️ Running in simulation mode (no live data)");
-  }
-
-  // Initialize Telegram bot (optional)
+  // Initialize Telegram bot
   if (telegramToken && telegramChatId) {
     bot = new TelegramBot(telegramToken, { polling: false });
-    console.log("🤖 Telegram bot connected for signal updates.");
+    console.log("🤖 Telegram alerts enabled.");
   }
 
-  // Start periodic analysis loop
+  // Periodic signal check
   setInterval(async () => {
-    const { signal, ema14, ema50, ema200 } = await complexEMAAnalysis(apiKey);
-    if (!signal || signal === lastSignal) return;
+    const { signal, trend, ema14, ema50, ema200 } = await analyzeEMAStructure(apiKey);
 
-    lastSignal = signal;
+    if (!signal || signal === "HOLD") {
+      console.log("⏳ Waiting for clear trend...");
+      return;
+    }
 
-    const msg =
-      `📊 *XAU/USD EMA Strategy Update*\n\n` +
-      `EMA14: *${ema14}*\n` +
-      `EMA50: *${ema50}*\n` +
-      `EMA200: *${ema200}*\n\n` +
-      `⚡ *Signal: ${signal}*`;
+    // Confirm consistent signal
+    if (signal === lastSignal) confirmationCount++;
+    else confirmationCount = 1;
 
-    console.log(`📈 New Signal: ${signal}`);
+    // Check cooldown
+    const now = Date.now();
+    const cooldownPassed = now - lastAlertTime >= COOLDOWN_TIME;
 
-    if (bot && telegramChatId) {
-      try {
-        await bot.sendMessage(telegramChatId, msg, { parse_mode: "Markdown" });
-      } catch (err) {
-        console.error("⚠️ Telegram send error:", err.message);
+    // Only send if confirmed and cooldown passed
+    if (confirmationCount >= CONFIRMATION_ROUNDS && cooldownPassed) {
+      const message =
+        `📊 *Gold EMA Strategy Alert*\n\n` +
+        `💰 *XAU/USD*\n` +
+        `EMA14: *${ema14}*\n` +
+        `EMA50: *${ema50}*\n` +
+        `EMA200: *${ema200}*\n\n` +
+        `📈 *Trend:* ${trend}\n` +
+        `⚡ *Signal:* ${signal}`;
+
+      console.log(`🚀 Sending Telegram alert: ${signal}`);
+
+      if (bot && telegramChatId) {
+        try {
+          await bot.sendMessage(telegramChatId, message, { parse_mode: "Markdown" });
+          lastAlertTime = now;
+        } catch (err) {
+          console.error("⚠️ Telegram send error:", err.message);
+        }
       }
+
+      lastSignal = signal;
+    } else {
+      console.log(`📉 Signal detected (${signal}) — waiting for confirmation (${confirmationCount}/${CONFIRMATION_ROUNDS})`);
     }
   }, SIGNAL_INTERVAL);
 
-  // Return API for external use
-  return {
-    getBalance,
-    getOpenTrades,
-    openTrade,
-    closeTrade,
-    analyzeMarket: () => complexEMAAnalysis(apiKey),
-  };
+  console.log("🚀 Finnhub Gold Analyzer running...");
+  return { analyzeEMAStructure };
 }
